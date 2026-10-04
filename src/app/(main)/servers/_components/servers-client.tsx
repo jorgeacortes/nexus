@@ -117,31 +117,76 @@ export function ServersClient({ initialServers }: { initialServers: ServersPaylo
         ) : null}
 
         {visible.length > 0 ? (
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full min-w-[46rem] text-sm">
-              <thead className="bg-muted/40 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Service</th>
-                  <th className="px-3 py-2 font-medium">Port</th>
-                  <th className="px-3 py-2 font-medium">Proto</th>
-                  <th className="px-3 py-2 font-medium">Bind</th>
-                  <th className="px-3 py-2 font-medium">PID</th>
-                  <th className="px-3 py-2 font-medium">Uptime</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((listener) => (
-                  <ServerRow
-                    key={`${listener.protocol}:${listener.address}:${listener.port}:${listener.pid ?? "?"}`}
-                    listener={listener}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* A phone cannot read a six-column table; the same fields as a card list. */}
+            <div className="space-y-2 md:hidden">
+              {visible.map((listener) => (
+                <ServerCard
+                  key={`${listener.protocol}:${listener.address}:${listener.port}:${listener.pid ?? "?"}`}
+                  listener={listener}
+                />
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-xl border border-border bg-card md:block">
+              <table className="w-full min-w-[46rem] text-sm">
+                <thead className="bg-muted/40 text-left text-[11px] tracking-wide text-muted-foreground uppercase">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Service</th>
+                    <th className="px-3 py-2 font-medium">Port</th>
+                    <th className="px-3 py-2 font-medium">Proto</th>
+                    <th className="px-3 py-2 font-medium">Bind</th>
+                    <th className="px-3 py-2 font-medium">PID</th>
+                    <th className="px-3 py-2 font-medium">Uptime</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((listener) => (
+                    <ServerRow
+                      key={`${listener.protocol}:${listener.address}:${listener.port}:${listener.pid ?? "?"}`}
+                      listener={listener}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : null}
       </div>
     </>
+  );
+}
+
+/** Phone-sized listener row: the same fields the table shows, stacked instead of columnar. */
+function ServerCard({ listener }: { listener: ServerListener }) {
+  return (
+    <article
+      className={cn(
+        "rounded-xl border border-border bg-card p-3",
+        listener.nexusRole ? "border-primary/40 bg-primary/5" : undefined,
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{serviceName(listener)}</span>
+        {listener.nexusRole ? <Badge variant="default">{NEXUS_ROLE_LABELS[listener.nexusRole]}</Badge> : null}
+        <Badge variant={listener.scope === "public" ? "destructive" : "outline"} className="ml-auto">
+          {SCOPE_LABELS[listener.scope]}
+        </Badge>
+      </div>
+
+      <p className="mt-1.5 font-mono text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">
+          {listener.address}:{listener.port}
+        </span>{" "}
+        · {PROTOCOL_LABELS[listener.protocol]}
+      </p>
+
+      <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {listener.uid === null ? null : <span>uid {listener.uid}</span>}
+        {listener.pid === null ? null : <span>pid {listener.pid}</span>}
+        <span>up {formatUptime(listener.uptimeSeconds)}</span>
+      </p>
+    </article>
   );
 }
 

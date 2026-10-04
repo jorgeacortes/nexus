@@ -41,7 +41,7 @@ export function BoardColumn({
   );
 
   return (
-    <section className="flex w-[290px] shrink-0 flex-col rounded-xl border border-border bg-muted/30">
+    <section className="flex w-[calc(100vw-3rem)] max-w-[290px] shrink-0 snap-start flex-col rounded-xl border border-border bg-muted/30">
       <header className="flex items-center gap-2 px-3 py-2.5">
         <span className={cn("size-2 rounded-full", meta.dot)} />
         <h2 className="text-sm font-semibold">{meta.label}</h2>

@@ -239,10 +239,10 @@ function TaskRow({
   actions: React.ReactNode;
 }) {
   return (
-    <article className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3">
+    <article className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:flex-wrap sm:items-center">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium">{task.title}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 text-sm font-medium line-clamp-2 sm:truncate">{task.title}</p>
           {task.needsHuman ? <NeedsHumanBadge reason={task.needsHumanReason} /> : null}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -261,7 +261,7 @@ function TaskRow({
           <p className="mt-1.5 text-xs text-muted-foreground">{task.needsHumanReason}</p>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      <div className="flex shrink-0 items-center justify-end gap-2">{actions}</div>
     </article>
   );
 }

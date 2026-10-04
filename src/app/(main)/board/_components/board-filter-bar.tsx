@@ -33,29 +33,32 @@ export function BoardFilterBar({
   const noProjectCount = counts.get(NO_PROJECT_KEY) ?? 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5 md:px-6">
-      <span className="mr-1 text-xs font-medium text-muted-foreground">Project</span>
-      <FilterChip label="All projects" count={total} active={value === null} onClick={() => onChange(null)} />
-      {projects.map((project) => (
-        <FilterChip
-          key={project.id}
-          label={project.name}
-          count={counts.get(project.id) ?? 0}
-          active={value === project.id}
-          onClick={() => onChange(value === project.id ? null : project.id)}
-        />
-      ))}
-      {noProjectCount > 0 ? (
-        <FilterChip
-          label={NO_PROJECT_LABEL}
-          count={noProjectCount}
-          active={value === NO_PROJECT_KEY}
-          onClick={() => onChange(value === NO_PROJECT_KEY ? null : NO_PROJECT_KEY)}
-        />
-      ) : null}
+    <div className="flex items-center gap-2 border-b border-border px-4 py-2 md:px-6 md:py-2.5">
+      <span className="hidden shrink-0 text-xs font-medium text-muted-foreground md:inline">Project</span>
+      {/* One scrollable strip on a phone (the board needs the height), a wrapping row on desktop. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-0.5 [scrollbar-width:none] md:flex-wrap md:overflow-x-visible [&::-webkit-scrollbar]:hidden">
+        <FilterChip label="All projects" count={total} active={value === null} onClick={() => onChange(null)} />
+        {projects.map((project) => (
+          <FilterChip
+            key={project.id}
+            label={project.name}
+            count={counts.get(project.id) ?? 0}
+            active={value === project.id}
+            onClick={() => onChange(value === project.id ? null : project.id)}
+          />
+        ))}
+        {noProjectCount > 0 ? (
+          <FilterChip
+            label={NO_PROJECT_LABEL}
+            count={noProjectCount}
+            active={value === NO_PROJECT_KEY}
+            onClick={() => onChange(value === NO_PROJECT_KEY ? null : NO_PROJECT_KEY)}
+          />
+        ) : null}
+      </div>
       {value !== null ? (
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground tabular-nums">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
             {visible} of {total} tasks
           </span>
           <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={() => onChange(null)}>

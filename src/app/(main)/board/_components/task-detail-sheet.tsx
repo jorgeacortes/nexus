@@ -103,7 +103,7 @@ export function TaskDetailSheet({
 
   return (
     <Sheet open={task !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-      <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
+      <SheetContent side="right" className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md">
         <SheetHeader className="border-b border-border">
           <SheetTitle>Task</SheetTitle>
           <SheetDescription>Edit the card, its project tag, and who owns it.</SheetDescription>

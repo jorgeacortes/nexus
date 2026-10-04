@@ -162,7 +162,8 @@ export function BoardClient({
         onChange={setProjectFilter}
       />
       <DndProvider backend={HTML5Backend}>
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4 md:p-6">
+        {/* Phone: one column at a time, snapping, with the next column peeking. Desktop: a wrapping-free row. */}
+        <div className="flex min-h-0 flex-1 snap-x snap-proximity scroll-p-4 gap-3 overflow-x-auto p-4 md:snap-none md:scroll-p-6 md:p-6">
           {TASK_STATUSES.map((status) => (
             <BoardColumn
               key={status}
