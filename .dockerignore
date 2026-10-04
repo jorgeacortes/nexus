@@ -13,6 +13,7 @@ dist
 data
 data-dev
 
+.env
 .env*.local
 *.md
 !README.md

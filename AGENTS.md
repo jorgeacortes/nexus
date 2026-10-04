@@ -14,10 +14,10 @@ This project uses pnpm.
 
 ```bash
 pnpm install
-pnpm dev      # http://localhost:3100, dev SQLite file in ./data-dev
+pnpm dev      # http://localhost:3100 (override with PORT), dev SQLite file in ./data-dev
 ```
 
-Production data lives in `./data` and is served by `docker compose up` (see `docker-compose.yml`); `pnpm dev` never touches it.
+Production data lives in `./data` and is served by `docker compose up` (see `docker-compose.yml`); `pnpm dev` never touches it. The container listens on 3100 internally and publishes `HOST_PORT` (default 3210) on the host, so it does not collide with the dev server.
 
 Available commands:
 

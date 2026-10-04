@@ -22,13 +22,23 @@ pnpm dev          # http://localhost:3100, SQLite in ./data-dev
 pnpm validate     # biome + typecheck + vitest
 ```
 
-`pnpm dev` never touches the production database in `./data`.
+`pnpm dev` never touches the production database in `./data`. Override the dev
+port with `PORT`: `PORT=3211 pnpm dev`.
 
 ## Deployment (Docker Compose)
 
 ```bash
-pnpm docker:up    # build + start; serves http://localhost:3100
+pnpm docker:up    # build + start; serves http://localhost:3210
 pnpm docker:down
+```
+
+The container always listens on **3100**; the **published host port** is
+`HOST_PORT` (default **3210**, so it does not collide with the dev server or the
+CRM on 3000). Override it inline or in a `.env` file (see `.env.example`):
+
+```bash
+HOST_PORT=4000 pnpm docker:up          # one-off
+BIND_ADDRESS=127.0.0.1 pnpm docker:up  # bind loopback only
 ```
 
 - SQLite lives on the host at `./data/nexus.db`; migrations run before the
