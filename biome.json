@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/latest/schema.json",
   "files": {
-    "includes": ["src/**", "scripts/**", "*.ts", "*.mjs", "!src/infrastructure/db/tasks/migrations"]
+    "includes": ["src/**", "scripts/**", "*.ts", "*.mjs", "!src/infrastructure/db/nexus/migrations"]
   },
   "formatter": {
     "enabled": true,
