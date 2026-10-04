@@ -1,9 +1,10 @@
 "use client";
 
-import { Columns3 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import nexusMark from "@/app/apple-icon.png";
 import { cn } from "@/lib/utils";
 
 import { NAV_ITEMS } from "./nav-items";
@@ -12,9 +13,10 @@ import { NAV_ITEMS } from "./nav-items";
 export function SidebarBrand() {
   return (
     <div className="flex items-center gap-2.5 px-4 py-5">
-      <div className="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-        <Columns3 className="size-4" />
-      </div>
+      {/* The StarCraft Nexus mark (see AGENTS.md → Branding). The art is RGBA with a
+          transparent background, so it sits on the sidebar as-is — no tinted plate.
+          Width/height are explicit so the brand block cannot shift on load. */}
+      <Image src={nexusMark} alt="" width={32} height={32} priority className="size-8 shrink-0 rounded-lg" />
       <div className="leading-tight">
         <p className="text-sm font-semibold tracking-tight">Nexus</p>
         <p className="text-xs text-sidebar-foreground/60">agent ops console</p>

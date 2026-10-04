@@ -139,6 +139,20 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
   deployed board) or `PORT` (dev), and the list is filterable by port, process,
   pid, or address.
 
+## Branding
+
+- The app's mark is the StarCraft Protoss Nexus art. Source of truth:
+  `src/app/apple-icon.png` (180×180, RGBA, transparent background). `src/app/icon.png`
+  (64×64) and `src/app/favicon.ico` are the same art downsized for browser metadata,
+  wired through the `icons` block in `src/app/layout.tsx`. Reuse this art — do not
+  redraw it, and do not add a second divergent copy.
+- In the UI it renders in `SidebarBrand` (`src/app/(main)/_components/sidebar-nav.tsx`),
+  which the desktop rail and the mobile drawer share: `next/image` imports
+  `apple-icon.png` directly — no `public/` file — at an explicit 32×32 in the brand
+  block's `size-8` slot, so the block cannot shift on load. The art is transparent, so
+  it sits on the sidebar as-is: never put a coloured plate behind it, and never
+  upscale the 64×64 `icon.png`.
+
 ## Code conventions
 
 - TypeScript strict mode; no `any`.
