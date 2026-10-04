@@ -4,6 +4,22 @@ Personal agent operations console: monitor AI coding agents, and manage and visu
 
 This is the single source of truth for the project's product decisions and implementation order. No code exists beyond the bootstrap commit (`7ad5bf2`: Next.js skeleton, `tasks` SQLite schema, Herdr client); implementation starts at Phase 1 below. Decisions listed here are approved and final unless changed by the operator.
 
+## Intent, goals, and constraints
+
+**Intent.** The operator runs several AI coding agents across multiple harnesses (pi, Claude Code, Cursor) inside Herdr, one workspace per project (crm development, linkedin posts, nagabot development, proposal creation…), each project living in its own folder. Today, monitoring what agents are doing means inspecting Herdr directly, and the work to be done lives in scattered lists. Nexus exists to give one glanceable place for both.
+
+**Goals.**
+1. **Monitor agents:** see every agent across harnesses and what it is doing right now (working/idle/blocked, current task, live titles).
+2. **Manage and visualize work:** one kanban board of tasks with status, the project as a tag, the assignee (agent or the operator), and a clear signal for tasks needing human action.
+
+**Non-goals.** Multi-user support, authentication, hosting for teams, mobile apps, task automation itself (Nexus observes and dispatches; it does not execute work), integrations beyond Herdr for now.
+
+**Constraints.**
+- **Personal project:** single operator, single machine; no auth, no multi-tenancy.
+- **No scalability scaffolding** (pagination, caching layers, role models) unless a real need appears.
+- **Local-first data:** SQLite file in `./data/nexus.db`; Herdr state stays on-machine via its socket API.
+- **Operator is the developer:** simplicity and low ceremony beat configurability; hand-maintained lists are acceptable.
+
 ## Approved decisions
 
 1. **Personal use only.** One user, one machine, no auth, no multi-tenancy, no scalability scaffolding (pagination, caching layers, role models) unless a real need appears.
