@@ -17,7 +17,7 @@ describe("parseSnapshot", () => {
           cwd: "/home/sandbox/ws/nexus",
           terminal_title_stripped: "task review",
           focused: true,
-          tokens: { quota_provider_model: "Claude/Sonnet 5.5" },
+          tokens: { quota_provider_model: "Claude/Sonnet 5.5", quota_topic: "reviewing the board" },
         },
         { agent: "claude", agent_status: "bogus" },
       ],
@@ -36,6 +36,7 @@ describe("parseSnapshot", () => {
       cwd: "/home/sandbox/ws/nexus",
       terminalTitle: "task review",
       model: "Claude/Sonnet 5.5",
+      topic: "reviewing the board",
       focused: true,
     });
     expect(snapshot.agents[1].agentStatus).toBe("unknown");

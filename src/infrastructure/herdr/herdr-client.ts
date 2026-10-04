@@ -18,6 +18,8 @@ export interface HerdrAgentState {
   terminalTitle: string;
   /** Best-effort live model (e.g. "Claude/Sonnet 5.5"); SQLite owns the assignment. */
   model: string | null;
+  /** Herdr's current topic for the agent (its last line of conversation). */
+  topic: string | null;
   focused: boolean;
 }
 
@@ -147,6 +149,7 @@ export function parseSnapshot(raw: RawSnapshot): HerdrSnapshot {
       cwd: String(agent.cwd ?? ""),
       terminalTitle: String(agent.terminal_title_stripped ?? agent.terminal_title ?? ""),
       model: modelOf(agent.tokens),
+      topic: topicOf(agent.tokens),
       focused: Boolean(agent.focused),
     };
   });
@@ -171,6 +174,12 @@ function modelOf(tokens: unknown): string | null {
   const record = tokens as Record<string, unknown>;
   const value = record.quota_provider_model ?? record.quota_model;
   return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function topicOf(tokens: unknown): string | null {
+  if (!tokens || typeof tokens !== "object") return null;
+  const value = (tokens as Record<string, unknown>).quota_topic;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
 function stringOrNull(value: unknown): string | null {

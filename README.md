@@ -49,10 +49,38 @@ nx task show <id>
 nx claim <id>                   # this Herdr pane claims the task
 nx done <id> --notes "commit abc123"
 nx need <id> --reason "waiting on the Stripe key"
+nx board --watch
 ```
 
 Every command accepts `--json`, and a task id may be abbreviated to any unique
 prefix. Agents read their own identity from `$HERDR_PANE_ID` — it is never typed.
+
+### `nx board` — the live join
+
+`nx board` renders tasks (SQLite, via the API) next to the live Herdr agents:
+project · agent pane · live status · the task the pane claimed · its status · the
+agent's current topic. A task another pane pinned as `[#<id>]` shows up as a
+display-only hint (marked `~`); unclaimed non-done tasks get their own row. It is
+read-only and never writes. It degrades to task state only when Herdr is down.
+
+```bash
+nx board              # one frame
+nx board --watch      # re-render every 10 seconds
+nx board --watch 5    # every 5 seconds
+```
+
+### Mission control (manual, once)
+
+Host the board in its own Herdr workspace so it is always one glance away:
+
+```bash
+herdr workspace create --label mission-control --cwd ~/ws/biznagatec-ws/nexus --focus
+# in the new pane:
+nx board --watch
+```
+
+`$HERDR_PANE_ID` inside that pane belongs to the board, not to an agent, so the
+board will not try to claim work for it.
 
 ## Deployment (Docker Compose)
 

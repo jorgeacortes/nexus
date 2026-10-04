@@ -8,46 +8,22 @@
  *   nx project add|list
  *   nx task add|list|show
  *   nx claim <id> / nx done <id> [--notes] / nx need <id> [--reason]
+ *   nx board [--watch [seconds]]
+ *   nx assign <id> --to <pane-id|auto>
  *
  * `--json` is accepted everywhere for scripting.
  */
 
+import { buildBoardRows, renderBoard } from "./board";
+import { orDash, renderTable, shortId, terminalWidth } from "./format";
+import type { ApiEnvelope, LiveAgentsPayload, Project, Task } from "./types";
+
 const DEFAULT_URL = "http://localhost:3100";
+const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
 
 /** Raised for every expected failure: printed as `nx: <message>`, never a stack trace. */
 class CliError extends Error {}
-
-type Task = {
-  id: string;
-  projectId: string | null;
-  title: string;
-  description: string | null;
-  status: string;
-  assignee: string | null;
-  agentName: string | null;
-  harness: string | null;
-  model: string | null;
-  effort: string | null;
-  herdrPaneId: string | null;
-  needsHuman: boolean;
-  needsHumanReason: string | null;
-  claimedAt: string | null;
-  completedAt: string | null;
-  completionNotes: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type Project = {
-  id: string;
-  name: string;
-  folderPath: string | null;
-  herdrWorkspaceId: string | null;
-  createdAt: string;
-};
-
-type ApiEnvelope<T> = { data: T; error: string | null };
 
 type ParsedArgs = { positionals: string[]; flags: Map<string, string | true> };
 
@@ -60,14 +36,10 @@ function envValue(name: string): string | null {
   return value ? value : null;
 }
 
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
 /** Flags that never take a value, so the next token stays a positional. */
 const BOOLEAN_FLAGS = new Set(["json"]);
 
-/** Parses `--key value`, `--key=value`, and `--flag`; numeric values stay with `--watch`. */
+/** Parses `--key value`, `--key=value`, and `--flag`; `--watch` keeps a bare numeric value. */
 function parseArgs(argv: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags = new Map<string, string | true>();
@@ -127,6 +99,7 @@ async function request<T>(path: string, init: { method?: string; body?: unknown 
 
 const listProjects = () => request<Project[]>("/api/projects");
 const listTasks = () => request<Task[]>("/api/tasks");
+const readLiveAgents = () => request<LiveAgentsPayload>("/api/herdr/snapshot");
 
 function resolveTask(ref: string | undefined, tasks: Task[]): Task {
   if (!ref) throw new CliError("Which task? Pass a task id (see `nx task list`).");
@@ -149,6 +122,11 @@ function resolveProject(ref: string | undefined, projects: Project[]): Project {
   throw new CliError(`No project matches "${ref}". Known projects: ${known}.`);
 }
 
+function projectName(projects: Project[], projectId: string | null): string {
+  if (!projectId) return "—";
+  return projects.find((project) => project.id === projectId)?.name ?? shortId(projectId);
+}
+
 /** Prints the payload as JSON or hands it to a human renderer. */
 function output(flags: Map<string, string | true>, data: unknown, render: () => void): void {
   if (hasFlag(flags, "json")) {
@@ -158,94 +136,7 @@ function output(flags: Map<string, string | true>, data: unknown, render: () => 
   render();
 }
 
-// ---------------------------------------------------------------------------
-// Tables
-// ---------------------------------------------------------------------------
-
-/** Approximate terminal cell width (wide/emoji code points count as two). */
-function cellWidth(text: string): number {
-  let width = 0;
-  for (const character of text) {
-    width += isWideCodePoint(character.codePointAt(0) ?? 0) ? 2 : 1;
-  }
-  return width;
-}
-
-function isWideCodePoint(codePoint: number): boolean {
-  return (
-    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
-    (codePoint >= 0x2600 && codePoint <= 0x27bf) ||
-    (codePoint >= 0x2b00 && codePoint <= 0x2bff) ||
-    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
-    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-    (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
-    (codePoint >= 0xff00 && codePoint <= 0xff60) ||
-    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-    (codePoint >= 0x1f000 && codePoint <= 0x1faff)
-  );
-}
-
-function clip(text: string, width: number): string {
-  if (cellWidth(text) <= width) return text;
-  let out = "";
-  let used = 0;
-  for (const character of text) {
-    const size = isWideCodePoint(character.codePointAt(0) ?? 0) ? 2 : 1;
-    if (used + size > width - 1) break;
-    out += character;
-    used += size;
-  }
-  return `${out}…`;
-}
-
-function pad(text: string, width: number): string {
-  return text + " ".repeat(Math.max(0, width - cellWidth(text)));
-}
-
-const GAP = "  ";
-
-/** Width-bounded table: header, rule, rows; the widest columns shrink to fit. */
-function renderTable(headers: string[], rows: string[][], maxWidth: number): string {
-  const widths = headers.map((header, index) =>
-    Math.max(cellWidth(header), ...rows.map((row) => cellWidth(row[index] ?? ""))),
-  );
-  let total = widths.reduce((sum, width) => sum + width, 0) + (headers.length - 1) * GAP.length;
-  while (total > maxWidth) {
-    let widest = 0;
-    for (let index = 1; index < widths.length; index += 1) {
-      if (widths[index] > widths[widest]) widest = index;
-    }
-    if (widths[widest] <= Math.max(8, cellWidth(headers[widest]))) break;
-    widths[widest] -= 1;
-    total -= 1;
-  }
-  const line = (cells: string[]) =>
-    cells
-      .map((cell, index) => pad(clip(cell, widths[index]), widths[index]))
-      .join(GAP)
-      .trimEnd();
-  const rule = headers.map((_, index) => "─".repeat(widths[index])).join(GAP);
-  return [line(headers), rule, ...rows.map((row) => line(row))].join("\n");
-}
-
-function terminalWidth(): number {
-  const columns = process.stdout.columns;
-  return columns && columns > 40 ? columns : 120;
-}
-
-function printTable(headers: string[], rows: string[][]): void {
-  console.log(renderTable(headers, rows, terminalWidth()));
-}
-
-function orDash(value: string | null | undefined): string {
-  return value && value.length > 0 ? value : "—";
-}
-
-function projectName(projects: Project[], projectId: string | null): string {
-  if (!projectId) return "—";
-  return projects.find((project) => project.id === projectId)?.name ?? shortId(projectId);
-}
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -257,14 +148,17 @@ async function projectCommand(argv: string[]): Promise<void> {
   if (action === "list") {
     const projects = await listProjects();
     output(flags, projects, () =>
-      printTable(
-        ["ID", "NAME", "FOLDER", "WORKSPACE"],
-        projects.map((project) => [
-          shortId(project.id),
-          project.name,
-          project.folderPath ?? "",
-          project.herdrWorkspaceId ?? "",
-        ]),
+      console.log(
+        renderTable(
+          ["ID", "NAME", "FOLDER", "WORKSPACE"],
+          projects.map((project) => [
+            shortId(project.id),
+            project.name,
+            project.folderPath ?? "",
+            project.herdrWorkspaceId ?? "",
+          ]),
+          terminalWidth(),
+        ),
       ),
     );
     return;
@@ -309,16 +203,19 @@ async function taskCommand(argv: string[]): Promise<void> {
       tasks = tasks.filter((task) => task.status === status);
     }
     output(flags, tasks, () =>
-      printTable(
-        ["ID", "STATUS", "TITLE", "PROJECT", "ASSIGNEE", "CLAIMED"],
-        tasks.map((task) => [
-          shortId(task.id),
-          task.status,
-          task.title,
-          projectName(projects, task.projectId),
-          orDash(task.assignee),
-          task.claimedAt ? new Date(task.claimedAt).toISOString().slice(0, 16).replace("T", " ") : "",
-        ]),
+      console.log(
+        renderTable(
+          ["ID", "STATUS", "TITLE", "PROJECT", "ASSIGNEE", "CLAIMED"],
+          tasks.map((task) => [
+            shortId(task.id),
+            task.status,
+            task.title,
+            projectName(projects, task.projectId),
+            orDash(task.assignee),
+            task.claimedAt ? new Date(task.claimedAt).toISOString().slice(0, 16).replace("T", " ") : "",
+          ]),
+          terminalWidth(),
+        ),
       ),
     );
     return;
@@ -372,7 +269,7 @@ async function taskCommand(argv: string[]): Promise<void> {
         ["notes", orDash(task.completionNotes)],
       ];
       const width = Math.max(...lines.map(([key]) => key.length));
-      console.log(lines.map(([key, value]) => `${pad(key, width)}  ${value}`).join("\n"));
+      console.log(lines.map(([key, value]) => `${key.padEnd(width)}  ${value}`).join("\n"));
     });
     return;
   }
@@ -402,11 +299,10 @@ async function doneCommand(argv: string[]): Promise<void> {
     method: "POST",
     body: { notes: flagValue(flags, "notes") },
   });
-  output(flags, completed, () =>
-    console.log(
-      `Completed #${shortId(completed.id)} ${completed.title}${completed.completionNotes ? ` — ${completed.completionNotes}` : ""}`,
-    ),
-  );
+  output(flags, completed, () => {
+    const notes = completed.completionNotes ? ` — ${completed.completionNotes}` : "";
+    console.log(`Completed #${shortId(completed.id)} ${completed.title}${notes}`);
+  });
 }
 
 async function needCommand(argv: string[]): Promise<void> {
@@ -421,6 +317,52 @@ async function needCommand(argv: string[]): Promise<void> {
   );
 }
 
+async function loadBoard(): Promise<{ rows: ReturnType<typeof buildBoardRows>; live: LiveAgentsPayload }> {
+  const [tasks, projects, live] = await Promise.all([listTasks(), listProjects(), readLiveAgents()]);
+  return { rows: buildBoardRows({ tasks, projects, agents: live.agents }), live };
+}
+
+function printBoard(rows: ReturnType<typeof buildBoardRows>, live: LiveAgentsPayload, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify({ agents: live.agents.length, available: live.available, rows }, null, 2));
+    return;
+  }
+  console.log(renderBoard(rows, terminalWidth()));
+  if (!live.available) {
+    console.log(`\nHerdr unavailable${live.error ? `: ${live.error}` : ""} — showing task state only.`);
+  }
+}
+
+async function boardCommand(argv: string[]): Promise<void> {
+  const { flags } = parseArgs(argv);
+  const json = hasFlag(flags, "json");
+  const watch = flags.get("watch");
+  if (watch === undefined) {
+    const { rows, live } = await loadBoard();
+    printBoard(rows, live, json);
+    return;
+  }
+
+  const requested = watch === true ? DEFAULT_WATCH_SECONDS : Number.parseInt(watch, 10);
+  const seconds = Number.isFinite(requested) && requested > 0 ? requested : DEFAULT_WATCH_SECONDS;
+  process.on("SIGINT", () => process.exit(0));
+  for (;;) {
+    try {
+      if (!json) process.stdout.write("\u001B[2J\u001B[H");
+      const { rows, live } = await loadBoard();
+      if (!json) {
+        console.log(`nexus board · ${new Date().toLocaleTimeString()} · every ${seconds}s · Ctrl-C to exit\n`);
+      }
+      printBoard(rows, live, json);
+    } catch (error) {
+      console.log(`nx: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await sleep(seconds * 1000);
+  }
+}
+
+const BOARD_HELP = `  nx board [--watch [seconds]]  live join of tasks and Herdr agents (default 10s)`;
+
 function usage(): void {
   console.log(`nx — talk to Nexus over HTTP (NEXUS_URL, default ${DEFAULT_URL})
 
@@ -429,9 +371,10 @@ function usage(): void {
   nx task add <project> "<title>" [--description <text>] [--status backlog|ready]
   nx task list [project] [--status <status>]
   nx task show <id>
-  nx claim <id>                 claim for this Herdr pane ($HERDR_PANE_ID)
+  nx claim <id>                  claim for this Herdr pane ($HERDR_PANE_ID)
   nx done <id> [--notes <text>]  complete the task
   nx need <id> [--reason <t>]    flag the task as needing the operator
+${BOARD_HELP}
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.`);
 }
@@ -460,6 +403,9 @@ async function main(): Promise<void> {
       return;
     case "need":
       await needCommand(rest);
+      return;
+    case "board":
+      await boardCommand(rest);
       return;
     default:
       throw new CliError(`Unknown command "${command}". Run \`nx help\`.`);
