@@ -390,7 +390,7 @@ function usage(): void {
   nx done <id> [--notes <text>]  complete the task
   nx need <id> [--reason <t>]    flag the task as needing the operator
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
-  nx assign <id> --to <pane|auto>  push the task's prompt into a Herdr pane
+  nx assign <id> --to <pane-id|auto>  push the task's prompt into a Herdr pane
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.`);
 }

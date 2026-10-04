@@ -55,6 +55,8 @@ nx board --watch
 
 Every command accepts `--json`, and a task id may be abbreviated to any unique
 prefix. Agents read their own identity from `$HERDR_PANE_ID` — it is never typed.
+`nx done --notes` is stored on the task (`tasks.completion_notes`) and shown in
+the card's detail panel next to the claim/completion timestamps.
 
 ### `nx board` — the live join
 
