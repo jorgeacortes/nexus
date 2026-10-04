@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/latest/schema.json",
   "files": {
-    "includes": ["src/**", "scripts/**", "*.ts", "*.mjs", "!src/infrastructure/db/nexus/migrations"]
+    "includes": [
+      "src/**",
+      "scripts/**",
+      "*.ts",
+      "*.mjs",
+      "!src/infrastructure/db/nexus/migrations",
+      "!src/components/ui"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -18,7 +25,15 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "recommended": true,
+      "suspicious": {
+        "noUnknownAtRules": "off"
+      }
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }

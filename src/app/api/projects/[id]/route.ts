@@ -4,7 +4,7 @@ import { z } from "zod";
 import { DeleteProjectUseCase } from "@/application/projects/delete-project";
 import { ProjectNotFoundError } from "@/application/projects/errors";
 import { UpdateProjectUseCase } from "@/application/projects/update-project";
-import { projectRepo } from "@/infrastructure/container";
+import { projectRepo, taskRepo } from "@/infrastructure/container";
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).optional(),
@@ -47,6 +47,11 @@ export async function PATCH(request: Request, context: RouteContext<"/api/projec
 export async function DELETE(_request: Request, context: RouteContext<"/api/projects/[id]">) {
   const { id } = await context.params;
   try {
+    // Tasks survive their project: clear the tag so no card points at a deleted project.
+    const tasks = await taskRepo.findByProjectId(id);
+    for (const task of tasks) {
+      await taskRepo.update(task.id, { projectId: null });
+    }
     await new DeleteProjectUseCase(projectRepo).execute(id);
     return NextResponse.json({ data: { id }, error: null });
   } catch (error) {
