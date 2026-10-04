@@ -5,10 +5,12 @@ description: Take, create, and finish Nexus tasks with the `nx` CLI — the task
 
 # Nexus tasks (`nx`)
 
-Nexus is the task board for this machine. `nx` is a thin HTTP client over
-`NEXUS_URL` (default `http://localhost:3100`, the dev server; the Docker instance
-is `http://localhost:3210` unless `HOST_PORT` changed). The wrapper is on PATH at
-`~/.local/bin/nx`. **Never edit task rows directly** — always go through `nx`.
+Nexus is the task board for this machine. `nx` is a thin HTTP client; the wrapper
+is on PATH at `~/.local/bin/nx`. It finds the board by itself — `NEXUS_URL`, then
+`~/.config/nexus/env`, then a probe of the local ports (the Docker instance on
+`HOST_PORT`, default 3210, before the dev server on 3100) — and prints which board
+it reached, so you never pass a URL. **Never edit task rows directly** — always go
+through `nx`.
 
 ## The loop: taking work
 
@@ -24,6 +26,8 @@ unique prefix, and `--json` works on every command.
 
 ## Other commands
 
+- `nx ping` / `nx doctor` — which board you are on, and what every candidate
+  answered. Run `nx ping` when a command says no board answered.
 - `nx board [--watch]` — the live join of tasks × Herdr agents (read-only).
 - `nx task add <project> "<title>" --status ready` — create work; `ready` means an
   agent can claim it, `backlog` (default) means not yet.
@@ -31,6 +35,14 @@ unique prefix, and `--json` works on every command.
 - `nx need <id> --reason "..."` — flag that this needs the operator.
 - `nx assign <id> --to <pane-id|auto>` — push the task's prompt into a Herdr pane
   (operator action; `auto` = the idle pane inside the project folder).
+
+## Two things that look like failures but are not
+
+- A probed board with **no projects** refuses writes
+  (`refusing to write to a probed board`). That guard exists because the empty dev
+  database lives one port away; if the board really is new, pass `--force`.
+- Nothing answering means no board is running: start one (`pnpm docker:up`, or
+  `pnpm dev` in the Nexus repo) or set `NEXUS_URL`. Do not guess a port.
 
 ## Rules
 
@@ -45,5 +57,6 @@ unique prefix, and `--json` works on every command.
 ## Errors
 
 `nx` exits non-zero and prints one line: unknown project/task, already claimed,
-invalid transition, or `cannot reach Nexus`. Read it and adjust; if Nexus is
-unreachable, report it — do not retry blindly or guess a URL.
+invalid transition, or `cannot reach Nexus`. Read it and adjust; `nx doctor` lists
+the boards that answer. If Nexus is unreachable, report it — do not retry blindly
+or guess a port.

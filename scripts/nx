@@ -3,6 +3,12 @@
 #
 #   ln -sf ~/ws/biznagatec-ws/nexus/scripts/nx ~/.local/bin/nx
 #
-# It only runs the HTTP client in src/cli/nx.ts, so it is safe from any cwd.
+# It only runs the HTTP client in src/cli/nx.ts, so it is safe from any cwd. The
+# board URL is resolved inside the client: NEXUS_URL, then ~/.config/nexus/env,
+# then a probe of the local ports (`nx doctor` shows what each candidate answered).
 set -euo pipefail
-exec pnpm --dir "$HOME/ws/biznagatec-ws/nexus" exec tsx src/cli/nx.ts "$@"
+
+# Follow the symlink so the wrapper works from wherever it was installed.
+repo="$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd)"
+
+exec pnpm --dir "$repo" exec tsx src/cli/nx.ts "$@"

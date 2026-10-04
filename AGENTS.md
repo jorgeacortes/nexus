@@ -19,6 +19,8 @@ pnpm dev      # http://localhost:3100 (override with PORT), dev SQLite file in .
 
 Production data lives in `./data` and is served by `docker compose up` (see `docker-compose.yml`); `pnpm dev` never touches it. The container listens on 3100 internally and publishes `HOST_PORT` (default 3210) on the host, so it does not collide with the dev server.
 
+`nx` (`src/cli/nx.ts`) resolves its board the same way every time: `NEXUS_URL`, then `~/.config/nexus/env`, then a probe of the local ports (deployed `HOST_PORT` before dev `3100`). It reports which board answered (`nx ping`, `nx doctor`) and refuses writes to a probed board that has no projects unless `--force`, so a pane can never silently write to the empty `./data-dev` board.
+
 Available commands:
 
 ```bash

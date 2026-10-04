@@ -35,6 +35,7 @@ This is the single source of truth for the project's product decisions and imple
 10. **Two orthogonal axes on every card:**
     - `status` answers "why has work stopped?" — task-level. `blocked` means the task cannot move forward right now, whatever the cause (cron, deploy, another task, a missing key). It says nothing about who acts next.
     - `needs_human` answers "whose court is the ball in?" — operator-level flag, orthogonal to status. It can sit on `in_progress` (agent paused awaiting input), on `blocked` (agent hit a wall needing a decision), or on `done` (awaiting review). Set manually, or auto-suggested when the linked Herdr agent reports `blocked`; never derived from task status alone. No `review` column.
+11. **The board address is resolved, never assumed.** Two boards exist one port apart (deployed container on `HOST_PORT`, default 3210, against `./data`; dev server on 3100 against `./data-dev`, empty), so `nx` resolves in the order `NEXUS_URL` → `~/.config/nexus/env` → probe of the local ports, always reports which board answered, and refuses writes to a *probed* board that has no projects unless `--force`. Identity comes from `/api/instance` (database file + counts), so the caller can prove which instance it reached; a board without that route still works, with identity unknown. No magic port fallback beyond the ordered probe, and no second source of truth for the URL in docs or wrappers.
 
 ### The model
 

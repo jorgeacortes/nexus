@@ -3,8 +3,12 @@
  *
  * This is an HTTP client and nothing else: it never imports SQLite or the
  * application layer, so it runs from any cwd, inside or outside the container,
- * and cannot corrupt the database. Set `NEXUS_URL` to point at another host.
+ * and cannot corrupt the database. The board it talks to comes from `NEXUS_URL`,
+ * then `~/.config/nexus/env`, then a probe of the local ports — the deployed
+ * container before the dev server (see `board-target.ts`); `nx doctor` prints
+ * what every candidate answered, and the chosen board is always reported.
  *
+ *   nx ping / nx doctor
  *   nx project add|list
  *   nx task add|list|show
  *   nx claim <id> / nx done <id> [--notes] / nx need <id> [--reason]
@@ -15,10 +19,19 @@
  */
 
 import { buildBoardRows, renderBoard } from "./board";
+import {
+  type BoardTarget,
+  candidateUrls,
+  configPath,
+  configUrl,
+  describeInstance,
+  describeTarget,
+  probeHttp,
+  resolveBoard,
+} from "./board-target";
 import { orDash, renderTable, shortId, terminalWidth } from "./format";
 import type { ApiEnvelope, LiveAgentsPayload, Project, Task } from "./types";
 
-const DEFAULT_URL = "http://localhost:3100";
 const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
 
@@ -27,8 +40,38 @@ class CliError extends Error {}
 
 type ParsedArgs = { positionals: string[]; flags: Map<string, string | true> };
 
-function baseUrl(): string {
-  return (process.env.NEXUS_URL?.trim() || DEFAULT_URL).replace(/\/+$/, "");
+/** Resolved once per process: every command in one invocation talks to one board. */
+let resolvedBoard: Promise<BoardTarget> | null = null;
+let probedBoardAnnounced = false;
+let forceWrites = false;
+
+/**
+ * The board this invocation talks to, plus a one-line note on stderr the first
+ * time the URL was only guessed by the probe, so a guess is never silent.
+ */
+async function currentBoard(): Promise<BoardTarget> {
+  resolvedBoard ??= resolveBoard({ probe: probeHttp });
+  const target = await resolvedBoard;
+  if (target.source === "probe" && !probedBoardAnnounced) {
+    probedBoardAnnounced = true;
+    const also = target.reachable.slice(1);
+    const suffix = also.length > 0 ? ` (also up: ${also.join(", ")})` : "";
+    console.error(`nx: board ${describeTarget(target)} — probed${suffix}; pin it with NEXUS_URL or ${configPath()}`);
+  }
+  return target;
+}
+
+/**
+ * A probed board with no projects is almost certainly the empty dev database, so
+ * the write is refused unless the caller passes `--force` or pinned the URL.
+ */
+function assertWritable(target: BoardTarget): void {
+  if (forceWrites || target.source !== "probe") return;
+  const projects = target.instance?.counts.projects;
+  if (projects === undefined || projects > 0) return;
+  throw new CliError(
+    `${describeTarget(target)} has no projects — refusing to write to a probed board (pass --force, or set NEXUS_URL)`,
+  );
 }
 
 function envValue(name: string): string | null {
@@ -37,7 +80,7 @@ function envValue(name: string): string | null {
 }
 
 /** Flags that never take a value, so the next token stays a positional. */
-const BOOLEAN_FLAGS = new Set(["json"]);
+const BOOLEAN_FLAGS = new Set(["json", "force"]);
 
 /** Parses `--key value`, `--key=value`, and `--flag`; `--watch` keeps a bare numeric value. */
 function parseArgs(argv: string[]): ParsedArgs {
@@ -76,16 +119,18 @@ function hasFlag(flags: Map<string, string | true>, name: string): boolean {
 }
 
 async function request<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const target = await currentBoard();
+  if ((init.method ?? "GET") !== "GET") assertWritable(target);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl()}${path}`, {
+    response = await fetch(`${target.url}${path}`, {
       method: init.method ?? "GET",
       headers: { "content-type": "application/json" },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "network error";
-    throw new CliError(`cannot reach Nexus at ${baseUrl()} (${detail})`);
+    throw new CliError(`cannot reach Nexus at ${target.url} (${detail})`);
   }
   const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
   if (!payload) {
@@ -251,6 +296,7 @@ async function taskCommand(argv: string[]): Promise<void> {
     const tasks = await listTasks();
     const task = resolveTask(positionals[0], tasks);
     const projects = await listProjects();
+    const target = await currentBoard();
     output(flags, task, () => {
       const lines: Array<[string, string]> = [
         ["id", task.id],
@@ -267,6 +313,7 @@ async function taskCommand(argv: string[]): Promise<void> {
         ["needs human", task.needsHuman ? (task.needsHumanReason ?? "yes") : "no"],
         ["description", orDash(task.description)],
         ["notes", orDash(task.completionNotes)],
+        ["board", describeTarget(target)],
       ];
       const width = Math.max(...lines.map(([key]) => key.length));
       console.log(lines.map(([key, value]) => `${key.padEnd(width)}  ${value}`).join("\n"));
@@ -322,11 +369,28 @@ async function loadBoard(): Promise<{ rows: ReturnType<typeof buildBoardRows>; l
   return { rows: buildBoardRows({ tasks, projects, agents: live.agents }), live };
 }
 
-function printBoard(rows: ReturnType<typeof buildBoardRows>, live: LiveAgentsPayload, json: boolean): void {
+function printBoard(
+  rows: ReturnType<typeof buildBoardRows>,
+  live: LiveAgentsPayload,
+  json: boolean,
+  target: BoardTarget,
+): void {
   if (json) {
-    console.log(JSON.stringify({ agents: live.agents.length, available: live.available, rows }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          board: { url: target.url, source: target.source, instance: target.instance },
+          agents: live.agents.length,
+          available: live.available,
+          rows,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
+  console.log(`board · ${describeTarget(target)}`);
   console.log(renderBoard(rows, terminalWidth()));
   if (!live.available) {
     console.log(`\nHerdr unavailable${live.error ? `: ${live.error}` : ""} — showing task state only.`);
@@ -337,9 +401,10 @@ async function boardCommand(argv: string[]): Promise<void> {
   const { flags } = parseArgs(argv);
   const json = hasFlag(flags, "json");
   const watch = flags.get("watch");
+  const target = await currentBoard();
   if (watch === undefined) {
     const { rows, live } = await loadBoard();
-    printBoard(rows, live, json);
+    printBoard(rows, live, json, target);
     return;
   }
 
@@ -353,12 +418,94 @@ async function boardCommand(argv: string[]): Promise<void> {
       if (!json) {
         console.log(`nexus board · ${new Date().toLocaleTimeString()} · every ${seconds}s · Ctrl-C to exit\n`);
       }
-      printBoard(rows, live, json);
+      printBoard(rows, live, json, target);
     } catch (error) {
       console.log(`nx: ${error instanceof Error ? error.message : String(error)}`);
     }
     await sleep(seconds * 1000);
   }
+}
+
+/** `nx ping`: which board is in use, or a non-zero exit when none answers. */
+async function pingCommand(argv: string[]): Promise<void> {
+  const { flags } = parseArgs(argv);
+  const target = await currentBoard();
+  output(flags, target, () => console.log(`OK ${describeTarget(target)}`));
+}
+
+/** `nx doctor`: every candidate board, which one won, and what is suspicious about it. */
+async function doctorCommand(argv: string[]): Promise<void> {
+  const { flags } = parseArgs(argv);
+  const target = await currentBoard();
+  const configFile = configPath();
+  const pinnedBy = process.env.NEXUS_URL?.trim() ? "NEXUS_URL (env)" : configUrl() !== null ? configFile : null;
+  const candidates = candidateUrls();
+  const urls = candidates.includes(target.url) ? candidates : [target.url, ...candidates];
+  const probed = await Promise.all(
+    urls.map(async (url) => {
+      const result = await probeHttp(url);
+      return { url, reachable: result.reachable, instance: result.reachable ? result.instance : null };
+    }),
+  );
+
+  if (hasFlag(flags, "json")) {
+    console.log(
+      JSON.stringify(
+        {
+          board: { url: target.url, source: target.source, instance: target.instance },
+          pinnedBy,
+          configFile,
+          configPresent: configUrl() !== null,
+          candidates: probed,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const lines: Array<[string, string]> = [
+    ["board", describeTarget(target)],
+    ["pinned by", pinnedBy ?? "nothing — probed"],
+    ["config", `${configFile} (${configUrl() !== null ? "present" : "missing"})`],
+  ];
+  const width = Math.max(...lines.map(([key]) => key.length));
+  console.log(lines.map(([key, value]) => `${key.padEnd(width)}  ${value}`).join("\n"));
+  console.log("");
+  console.log(
+    renderTable(
+      ["URL", "STATUS", "DATABASE", "TASKS", "PROJECTS", "USED"],
+      probed.map((entry) => [
+        entry.url,
+        entry.reachable ? "up" : "down",
+        entry.instance?.database ?? "",
+        entry.instance?.counts.tasks === null || entry.instance?.counts.tasks === undefined
+          ? ""
+          : String(entry.instance.counts.tasks),
+        entry.instance ? String(entry.instance.counts.projects) : "",
+        entry.url === target.url ? "yes" : "",
+      ]),
+      terminalWidth(),
+    ),
+  );
+
+  const warnings: string[] = [];
+  if (target.source === "probe") {
+    warnings.push(`probed: the selected board is a guess — pin it with NEXUS_URL or ${configFile}`);
+  }
+  if (target.instance === null) {
+    warnings.push("the selected board has no /api/instance: identity unknown, so probed writes cannot be guarded");
+  }
+  if (target.instance !== null && target.instance.counts.projects === 0) {
+    warnings.push("the selected board has no projects: writes are refused unless --force");
+  }
+  for (const entry of probed) {
+    if (entry.reachable && entry.url !== target.url) {
+      warnings.push(`also up: ${entry.url} · ${describeInstance(entry.instance)}`);
+    }
+  }
+  for (const warning of warnings) console.log(`\n! ${warning}`);
 }
 
 async function assignCommand(argv: string[]): Promise<void> {
@@ -379,8 +526,10 @@ async function assignCommand(argv: string[]): Promise<void> {
 }
 
 function usage(): void {
-  console.log(`nx — talk to Nexus over HTTP (NEXUS_URL, default ${DEFAULT_URL})
+  console.log(`nx — talk to the Nexus board over HTTP
 
+  nx ping                        print the board in use (non-zero exit when none answers)
+  nx doctor                      every candidate board, what answered, and warnings
   nx project add <name> [--folder <path>] [--workspace <herdr-id>]
   nx project list
   nx task add <project> "<title>" [--description <text>] [--status backlog|ready]
@@ -392,11 +541,16 @@ function usage(): void {
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
   nx assign <id> --to <pane-id|auto>  push the task's prompt into a Herdr pane
 
-  --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.`);
+  --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
+  --force writes to a probed board that has no projects.
+
+  The board comes from NEXUS_URL, then ${configPath()}, then the first of
+  ${candidateUrls().join(", ")} that answers.`);
 }
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  forceWrites = hasFlag(parseArgs(argv).flags, "force");
   const [command, ...rest] = argv;
   switch (command) {
     case undefined:
@@ -404,6 +558,12 @@ async function main(): Promise<void> {
     case "--help":
     case "-h":
       usage();
+      return;
+    case "ping":
+      await pingCommand(rest);
+      return;
+    case "doctor":
+      await doctorCommand(rest);
       return;
     case "project":
       await projectCommand(rest);

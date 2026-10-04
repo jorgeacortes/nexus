@@ -1,5 +1,16 @@
 /** Wire shapes shared by the `nx` commands, so the CLI stays independent of the app. */
 
+/**
+ * `/api/instance` — which board answered. `dataDir`/`database` are null and
+ * `counts.tasks` is null when a board predates the route and only its project
+ * list could be read.
+ */
+export type BoardInstance = {
+  dataDir: string | null;
+  database: string | null;
+  counts: { projects: number; tasks: number | null };
+};
+
 export type Task = {
   id: string;
   projectId: string | null;

@@ -30,14 +30,38 @@ port with `PORT`: `PORT=3211 pnpm dev`.
 ## The `nx` CLI
 
 `nx` is the Herdr-first way to create and run work. It is a thin HTTP client
-(`src/cli/nx.ts`) against `NEXUS_URL` (default `http://localhost:3100`): it works
-from any cwd — including inside a Herdr pane — and never opens the database
-itself.
+(`src/cli/nx.ts`): it works from any cwd — including inside a Herdr pane — and
+never opens the database itself.
 
 Install the wrapper on `PATH` once:
 
 ```bash
 ln -sf ~/ws/biznagatec-ws/nexus/scripts/nx ~/.local/bin/nx
+```
+
+### Which board?
+
+The board URL is resolved in this order, and the winner is always reported:
+
+1. `NEXUS_URL`;
+2. `NEXUS_URL` from the machine config `~/.config/nexus/env` (or
+   `$XDG_CONFIG_HOME/nexus/env`) — a `KEY=value` file that may use `export`:
+   `NEXUS_URL=http://localhost:3210`;
+3. a probe of the local ports, deployed container first: `HOST_PORT` (default
+   `3210`), then `http://localhost:3100` (the dev server). Override the list with
+   `NEXUS_CANDIDATES="http://host:port,..."`.
+
+So a bare `nx claim` works from an agent pane that has no `NEXUS_URL` set, and it
+says which board it reached: `nx: board http://localhost:3210 · /app/data/nexus.db
+· 12 tasks / 3 projects — probed; pin it with NEXUS_URL or ~/.config/nexus/env`.
+Because a probed board is a guess, a write to a probed board that has no projects
+is refused (`--force` overrides): that is the empty `./data-dev` trap — the dev
+database holds no projects, so a bare write there would silently land on a board
+you never look at. Pin the URL for day-to-day use, and check what answered with:
+
+```bash
+nx ping        # the board in use, or a non-zero exit when none answers
+nx doctor      # every candidate, what answered, and what is suspicious
 ```
 
 ```bash
@@ -56,7 +80,8 @@ nx board --watch
 Every command accepts `--json`, and a task id may be abbreviated to any unique
 prefix. Agents read their own identity from `$HERDR_PANE_ID` — it is never typed.
 `nx done --notes` is stored on the task (`tasks.completion_notes`) and shown in
-the card's detail panel next to the claim/completion timestamps.
+the card's detail panel next to the claim/completion timestamps. `nx board` and
+`nx task show` name the board they read, so two instances can never be confused.
 
 ### Agent skill
 
