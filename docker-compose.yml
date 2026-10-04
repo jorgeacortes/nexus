@@ -1,0 +1,42 @@
+# Production deployment: one service, SQLite on ./data, migrations before start.
+#   docker compose up --build
+# Then open http://localhost:3100.
+#
+# The Herdr socket is mounted read-only from the host config directory so the
+# agents screens work inside the container. Override HERDR_CONFIG_DIR if Herdr
+# keeps its socket somewhere else.
+
+name: nexus
+
+services:
+  nexus:
+    image: nexus:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${HOST_PORT:-3100}:3100"
+    volumes:
+      - ./data:/app/data
+      - ${HERDR_CONFIG_DIR:-${HOME}/.config/herdr}:/herdr:ro
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=./data
+      - PUID=${DOCKER_UID:-1000}
+      - PGID=${DOCKER_GID:-1000}
+      - HERDR_SOCKET=/herdr/herdr.sock
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3100/board').then((r)=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s

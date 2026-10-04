@@ -7,7 +7,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "dev": "DATA_DIR=./data tsx scripts/migrate-databases.ts && DATA_DIR=./data next dev -p 3100",
+    "dev": "DATA_DIR=./data-dev tsx scripts/migrate-databases.ts && DATA_DIR=./data-dev next dev -p 3100",
     "build": "next build",
     "start": "DATA_DIR=./data tsx scripts/migrate-databases.ts && DATA_DIR=./data next start -p 3100",
     "lint": "biome lint",
@@ -20,7 +20,10 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate-databases.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "docker:up": "bash scripts/docker-up.sh up -d --build",
+    "docker:down": "bash scripts/docker-up.sh down",
+    "docker:logs": "bash scripts/docker-up.sh logs -f --tail=100"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

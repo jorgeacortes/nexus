@@ -1,0 +1,25 @@
+.git
+.github
+.vscode
+.cursor
+
+node_modules
+.next
+out
+coverage
+dist
+
+# The database is a host bind mount, never baked into the image.
+data
+data-dev
+
+.env*.local
+*.md
+!README.md
+
+.DS_Store
+*.pem
+*.log
+*.tsbuildinfo
+next-env.d.ts
+package-lock.json

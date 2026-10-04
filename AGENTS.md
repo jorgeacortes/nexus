@@ -14,8 +14,10 @@ This project uses pnpm.
 
 ```bash
 pnpm install
-pnpm dev      # http://localhost:3100, SQLite file in ./data/nexus.db
+pnpm dev      # http://localhost:3100, dev SQLite file in ./data-dev
 ```
+
+Production data lives in `./data` and is served by `docker compose up` (see `docker-compose.yml`); `pnpm dev` never touches it.
 
 Available commands:
 
