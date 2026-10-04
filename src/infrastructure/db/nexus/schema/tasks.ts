@@ -14,6 +14,7 @@ export const tasks = sqliteTable(
     title: text("title").notNull(),
     description: text("description"),
     status: text("status").notNull().default("backlog"),
+    priority: text("priority").notNull().default("normal"),
     assignee: text("assignee"),
     agentName: text("agent_name"),
     harness: text("harness"),
@@ -30,6 +31,7 @@ export const tasks = sqliteTable(
   },
   (table) => [
     index("tasks_status_updated_idx").on(table.status, table.updatedAt),
+    index("tasks_priority_updated_idx").on(table.priority, table.updatedAt),
     index("tasks_project_idx").on(table.projectId),
     index("tasks_needs_human_idx").on(table.needsHuman),
     index("tasks_herdr_pane_idx").on(table.herdrPaneId),

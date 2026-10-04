@@ -11,7 +11,13 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
+import {
+  TASK_PRIORITIES,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUSES,
+  type TaskPriority,
+  type TaskStatus,
+} from "@/domain/tasks/task";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
 import type { LiveAgent } from "@/lib/herdr";
@@ -41,6 +47,7 @@ export function TaskDetailSheet({
   const [description, setDescription] = useState(task?.description ?? "");
   const [projectId, setProjectId] = useState(task?.projectId ?? "");
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? "backlog");
+  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? "normal");
   const [assignment, setAssignment] = useState<AssignmentValue>({
     assignee: task?.assignee ?? null,
     harness: task?.harness ?? null,
@@ -62,6 +69,7 @@ export function TaskDetailSheet({
           description: description.trim() === "" ? null : description,
           projectId: projectId === "" ? null : projectId,
           status,
+          priority,
           ...assignment,
           needsHuman,
           needsHumanReason: needsHuman ? needsHumanReason || null : null,
@@ -129,7 +137,7 @@ export function TaskDetailSheet({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="detail-project">Project</Label>
               <NativeSelect
@@ -157,6 +165,21 @@ export function TaskDetailSheet({
                 {TASK_STATUSES.map((value) => (
                   <NativeSelectOption key={value} value={value}>
                     {COLUMN_META[value].label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="detail-priority">Priority</Label>
+              <NativeSelect
+                id="detail-priority"
+                className="w-full"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value as TaskPriority)}
+              >
+                {TASK_PRIORITIES.map((val) => (
+                  <NativeSelectOption key={val} value={val}>
+                    {TASK_PRIORITY_LABELS[val]}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>

@@ -92,6 +92,20 @@ describe("DrizzleTaskRepository", () => {
     expect(done.completedAt).toBeInstanceOf(Date);
     expect(done.completionNotes).toBe("PR #7");
   });
+
+  it("persists priority on save and update", async () => {
+    const saved = await repo.save({ title: "prio", priority: "blocker" });
+    expect(saved.priority).toBe("blocker");
+
+    const reread = await repo.findById(saved.id);
+    expect(reread?.priority).toBe("blocker");
+
+    const updated = await repo.update(saved.id, { priority: "high" });
+    expect(updated.priority).toBe("high");
+
+    const rereadUpdated = await repo.findById(saved.id);
+    expect(rereadUpdated?.priority).toBe("high");
+  });
 });
 
 describe("DrizzleProjectRepository", () => {

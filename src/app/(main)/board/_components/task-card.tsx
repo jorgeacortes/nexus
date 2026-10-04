@@ -14,6 +14,29 @@ import { NeedsHumanBadge } from "./needs-human-badge";
 
 export const TASK_DRAG_TYPE = "nexus-task";
 
+const PRIORITY_BADGES: Record<string, { label: string; className: string }> = {
+  blocker: {
+    label: "Blocker",
+    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+  },
+  high: {
+    label: "High",
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  },
+  normal: {
+    label: "Normal",
+    className: "border-zinc-500/20 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+  },
+  low: {
+    label: "Low",
+    className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+  },
+  someday: {
+    label: "Someday",
+    className: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-400",
+  },
+};
+
 /** A draggable kanban card. The card is the task; the project is only a tag. */
 export function TaskCard({
   task,
@@ -56,6 +79,16 @@ export function TaskCard({
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {task.priority && PRIORITY_BADGES[task.priority] ? (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+              PRIORITY_BADGES[task.priority].className,
+            )}
+          >
+            {PRIORITY_BADGES[task.priority].label}
+          </span>
+        ) : null}
         {projectName ? (
           <Badge variant="outline" className="max-w-full truncate text-muted-foreground">
             {projectName}

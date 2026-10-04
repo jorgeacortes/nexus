@@ -8,9 +8,11 @@ import {
   HARNESSES,
   harnessFromAgentKind,
   isKnownModelForHarness,
+  isTaskPriority,
   isValidEffort,
   KNOWN_MODELS,
   normalizeAssignment,
+  TASK_PRIORITIES,
   TaskAlreadyClaimedError,
   TaskTransitionError,
   TaskValidationError,
@@ -215,5 +217,37 @@ describe("completeTask", () => {
 
   it("rejects completing a ready task", () => {
     expect(() => completeTask(createTask({ title: "t", status: "ready" }))).toThrow(TaskTransitionError);
+  });
+});
+
+describe("task priority", () => {
+  it("defaults to normal on creation", () => {
+    const task = createTask({ title: "Task with default priority" });
+    expect(task.priority).toBe("normal");
+  });
+
+  it("accepts all valid priority levels", () => {
+    for (const priority of TASK_PRIORITIES) {
+      expect(isTaskPriority(priority)).toBe(true);
+      const task = createTask({ title: "Task", priority });
+      expect(task.priority).toBe(priority);
+    }
+  });
+
+  it("rejects an invalid priority level on create", () => {
+    // @ts-expect-error invalid priority
+    expect(() => createTask({ title: "Bad", priority: "critical" })).toThrow(TaskValidationError);
+  });
+
+  it("updates priority with updateTask", () => {
+    const task = createTask({ title: "Task", priority: "low" });
+    const updated = updateTask(task, { priority: "blocker" });
+    expect(updated.priority).toBe("blocker");
+  });
+
+  it("rejects an invalid priority level on update", () => {
+    const task = createTask({ title: "Task" });
+    // @ts-expect-error invalid priority
+    expect(() => updateTask(task, { priority: "urgent" })).toThrow(TaskValidationError);
   });
 });

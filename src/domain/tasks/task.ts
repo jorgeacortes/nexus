@@ -7,6 +7,29 @@
 export const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const TASK_PRIORITIES = ["blocker", "high", "normal", "low", "someday"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
+  blocker: "Blocker",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+  someday: "Someday",
+};
+
+export const TASK_PRIORITY_ORDER: Record<TaskPriority, number> = {
+  blocker: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+  someday: 4,
+};
+
+export function isTaskPriority(value: unknown): value is TaskPriority {
+  return typeof value === "string" && (TASK_PRIORITIES as readonly string[]).includes(value);
+}
+
 export const ASSIGNEE_TYPES = ["me", "agent"] as const;
 export type AssigneeType = (typeof ASSIGNEE_TYPES)[number];
 
@@ -157,6 +180,7 @@ export type Task = {
   title: string;
   description: string | null;
   status: TaskStatus;
+  priority: TaskPriority;
   assignee: AssigneeType | null;
   /**
    * The live Herdr agent kind behind the task (`pi`, `claude_code`, `cursor`,
@@ -186,6 +210,7 @@ export type CreateTaskInput = {
   title: string;
   description?: string | null;
   status?: TaskStatus;
+  priority?: TaskPriority;
   assignee?: AssigneeType | null;
   agentName?: string | null;
   harness?: Harness | null;
@@ -201,6 +226,7 @@ export type UpdateTaskInput = {
   title?: string;
   description?: string | null;
   status?: TaskStatus;
+  priority?: TaskPriority;
   assignee?: AssigneeType | null;
   agentName?: string | null;
   harness?: Harness | null;
@@ -317,6 +343,10 @@ export function createTask(input: CreateTaskInput): Task {
   if (!isTaskStatus(status)) {
     throw new TaskValidationError(`Unknown status "${status}".`);
   }
+  const priority = input.priority ?? "normal";
+  if (!isTaskPriority(priority)) {
+    throw new TaskValidationError(`Unknown priority "${priority}".`);
+  }
 
   return {
     id: crypto.randomUUID(),
@@ -324,6 +354,7 @@ export function createTask(input: CreateTaskInput): Task {
     title: normalizeTitle(input.title),
     description: input.description ?? null,
     status,
+    priority,
     ...normalizeAssignment(input),
     needsHuman: input.needsHuman ?? false,
     needsHumanReason: input.needsHuman ? (input.needsHumanReason ?? null) : null,
@@ -402,6 +433,10 @@ export function updateTask(task: Task, input: UpdateTaskInput): Task {
   if (!isTaskStatus(status)) {
     throw new TaskValidationError(`Unknown status "${status}".`);
   }
+  const priority = input.priority !== undefined ? input.priority : task.priority;
+  if (!isTaskPriority(priority)) {
+    throw new TaskValidationError(`Unknown priority "${priority}".`);
+  }
 
   const assignmentTouched =
     input.assignee !== undefined ||
@@ -430,6 +465,7 @@ export function updateTask(task: Task, input: UpdateTaskInput): Task {
     title: input.title !== undefined ? normalizeTitle(input.title) : task.title,
     description: input.description !== undefined ? input.description : task.description,
     status,
+    priority,
     ...(assignment ?? {
       assignee: task.assignee,
       agentName: task.agentName,

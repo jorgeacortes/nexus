@@ -6,7 +6,14 @@ import { ProjectReferenceNotFoundError, TaskNotFoundError } from "@/application/
 import { FlagNeedsHumanUseCase } from "@/application/tasks/flag-needs-human";
 import { MoveTaskUseCase } from "@/application/tasks/move-task";
 import { UpdateTaskUseCase } from "@/application/tasks/update-task";
-import { ASSIGNEE_TYPES, HARNESSES, TASK_STATUSES, type Task, TaskValidationError } from "@/domain/tasks/task";
+import {
+  ASSIGNEE_TYPES,
+  HARNESSES,
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  type Task,
+  TaskValidationError,
+} from "@/domain/tasks/task";
 import { projectReference, taskRepo } from "@/infrastructure/container";
 
 const patchTaskSchema = z.object({
@@ -14,6 +21,7 @@ const patchTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).optional(),
+  priority: z.enum(TASK_PRIORITIES).optional(),
   assignee: z.enum(ASSIGNEE_TYPES).nullable().optional(),
   agentName: z.string().nullable().optional(),
   harness: z.enum(HARNESSES).nullable().optional(),
@@ -50,11 +58,17 @@ export async function PATCH(request: Request, context: RouteContext<"/api/tasks/
     }
 
     let task: Task = existing;
-    if (body.projectId !== undefined || body.title !== undefined || body.description !== undefined) {
+    if (
+      body.projectId !== undefined ||
+      body.title !== undefined ||
+      body.description !== undefined ||
+      body.priority !== undefined
+    ) {
       task = await new UpdateTaskUseCase(taskRepo, projectReference).execute(id, {
         projectId: body.projectId,
         title: body.title,
         description: body.description,
+        priority: body.priority,
       });
     }
     if (

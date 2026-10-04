@@ -17,6 +17,7 @@ export type Task = {
   title: string;
   description: string | null;
   status: string;
+  priority: string;
   assignee: string | null;
   agentName: string | null;
   harness: string | null;

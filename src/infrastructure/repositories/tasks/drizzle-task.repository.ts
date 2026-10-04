@@ -11,8 +11,10 @@ import {
   type Harness,
   isAssigneeType,
   isHarness,
+  isTaskPriority,
   isTaskStatus,
   type Task,
+  type TaskPriority,
   type TaskStatus,
   type UpdateTaskInput,
   updateTask,
@@ -25,6 +27,10 @@ type TaskRow = typeof tasks.$inferSelect;
 
 function toStatus(value: string): TaskStatus {
   return isTaskStatus(value) ? value : "backlog";
+}
+
+function toPriority(value: string): TaskPriority {
+  return isTaskPriority(value) ? value : "normal";
 }
 
 function toAssignee(value: string | null): AssigneeType | null {
@@ -42,6 +48,7 @@ function toDomain(row: TaskRow): Task {
     title: row.title,
     description: row.description,
     status: toStatus(row.status),
+    priority: toPriority(row.priority),
     assignee: toAssignee(row.assignee),
     agentName: row.agentName,
     harness: toHarness(row.harness),
@@ -65,6 +72,7 @@ function toRow(task: Task) {
     title: task.title,
     description: task.description,
     status: task.status,
+    priority: task.priority,
     assignee: task.assignee,
     agentName: task.agentName,
     harness: task.harness,

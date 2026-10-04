@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { CreateTaskUseCase } from "@/application/tasks/create-task";
 import { ProjectReferenceNotFoundError } from "@/application/tasks/errors";
-import { ASSIGNEE_TYPES, HARNESSES, TASK_STATUSES, TaskValidationError } from "@/domain/tasks/task";
+import { ASSIGNEE_TYPES, HARNESSES, TASK_PRIORITIES, TASK_STATUSES, TaskValidationError } from "@/domain/tasks/task";
 import { projectReference, taskRepo } from "@/infrastructure/container";
 
 const createTaskSchema = z.object({
@@ -11,6 +11,7 @@ const createTaskSchema = z.object({
   title: z.string().min(1, "Task title is required"),
   description: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).optional(),
+  priority: z.enum(TASK_PRIORITIES).optional(),
   assignee: z.enum(ASSIGNEE_TYPES).nullable().optional(),
   agentName: z.string().nullable().optional(),
   harness: z.enum(HARNESSES).nullable().optional(),
@@ -26,9 +27,17 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId");
     const needsHuman = url.searchParams.get("needsHuman");
+    const status = url.searchParams.get("status");
+    const priority = url.searchParams.get("priority");
     let tasks = projectId ? await taskRepo.findByProjectId(projectId) : await taskRepo.findAll();
     if (needsHuman === "true") {
       tasks = tasks.filter((task) => task.needsHuman);
+    }
+    if (status) {
+      tasks = tasks.filter((task) => task.status === status);
+    }
+    if (priority) {
+      tasks = tasks.filter((task) => task.priority === priority);
     }
     return NextResponse.json({ data: tasks, error: null });
   } catch (error) {

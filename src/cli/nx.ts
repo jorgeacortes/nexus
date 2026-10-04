@@ -34,6 +34,8 @@ import type { ApiEnvelope, LiveAgentsPayload, Project, Task } from "./types";
 
 const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
+const TASK_PRIORITIES = ["blocker", "high", "normal", "low", "someday"];
+const PRIORITY_ORDER: Record<string, number> = { blocker: 0, high: 1, normal: 2, low: 3, someday: 4 };
 
 /** Raised for every expected failure: printed as `nx: <message>`, never a stack trace. */
 class CliError extends Error {}
@@ -235,8 +237,12 @@ async function taskCommand(argv: string[]): Promise<void> {
   if (action === "list") {
     const [projectRef] = positionals;
     const status = flagValue(flags, "status");
+    const priority = flagValue(flags, "priority");
     if (status && !TASK_STATUSES.includes(status)) {
       throw new CliError(`Unknown status "${status}". Known statuses: ${TASK_STATUSES.join(", ")}.`);
+    }
+    if (priority && !TASK_PRIORITIES.includes(priority)) {
+      throw new CliError(`Unknown priority "${priority}". Known priorities: ${TASK_PRIORITIES.join(", ")}.`);
     }
     const projects = await listProjects();
     let tasks = await listTasks();
@@ -247,13 +253,23 @@ async function taskCommand(argv: string[]): Promise<void> {
     if (status) {
       tasks = tasks.filter((task) => task.status === status);
     }
+    if (priority) {
+      tasks = tasks.filter((task) => task.priority === priority);
+    }
+    tasks.sort((a, b) => {
+      const pA = PRIORITY_ORDER[a.priority ?? "normal"] ?? 2;
+      const pB = PRIORITY_ORDER[b.priority ?? "normal"] ?? 2;
+      if (pA !== pB) return pA - pB;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
     output(flags, tasks, () =>
       console.log(
         renderTable(
-          ["ID", "STATUS", "TITLE", "PROJECT", "ASSIGNEE", "CLAIMED"],
+          ["ID", "STATUS", "PRIORITY", "TITLE", "PROJECT", "ASSIGNEE", "CLAIMED"],
           tasks.map((task) => [
             shortId(task.id),
             task.status,
+            task.priority ?? "normal",
             task.title,
             projectName(projects, task.projectId),
             orDash(task.assignee),
@@ -269,11 +285,17 @@ async function taskCommand(argv: string[]): Promise<void> {
   if (action === "add") {
     const [projectRef, title] = positionals;
     const status = flagValue(flags, "status");
+    const priority = flagValue(flags, "priority");
     if (status && status !== "backlog" && status !== "ready") {
       throw new CliError(`nx task add only accepts --status backlog|ready (got "${status}").`);
     }
+    if (priority && !TASK_PRIORITIES.includes(priority)) {
+      throw new CliError(`Unknown priority "${priority}". Known priorities: ${TASK_PRIORITIES.join(", ")}.`);
+    }
     if (!title) {
-      throw new CliError('Usage: nx task add <project> "<title>" [--description <text>] [--status backlog|ready]');
+      throw new CliError(
+        'Usage: nx task add <project> "<title>" [--description <text>] [--status backlog|ready] [--priority <level>]',
+      );
     }
     let projectId: string | null = null;
     if (projectRef && projectRef !== "-") {
@@ -286,9 +308,12 @@ async function taskCommand(argv: string[]): Promise<void> {
         title,
         description: flagValue(flags, "description"),
         status: status ?? undefined,
+        priority: priority ?? undefined,
       },
     });
-    output(flags, task, () => console.log(`Created task #${shortId(task.id)} ${task.title} (${task.status})`));
+    output(flags, task, () =>
+      console.log(`Created task #${shortId(task.id)} ${task.title} (${task.status}, ${task.priority ?? "normal"})`),
+    );
     return;
   }
 
@@ -302,6 +327,7 @@ async function taskCommand(argv: string[]): Promise<void> {
         ["id", task.id],
         ["title", task.title],
         ["status", task.status],
+        ["priority", task.priority ?? "normal"],
         ["project", projectName(projects, task.projectId)],
         ["assignee", orDash(task.assignee)],
         ["agent", orDash(task.agentName)],
@@ -529,8 +555,8 @@ function usage(): void {
   nx doctor                      every candidate board, what answered, and warnings
   nx project add <name> [--folder <path>] [--workspace <herdr-id>]
   nx project list
-  nx task add <project> "<title>" [--description <text>] [--status backlog|ready]
-  nx task list [project] [--status <status>]
+  nx task add <project> "<title>" [--description <text>] [--status backlog|ready] [--priority <level>]
+  nx task list [project] [--status <status>] [--priority <level>]
   nx task show <id>
   nx claim <id>                  claim for this Herdr pane ($HERDR_PANE_ID)
   nx done <id> [--notes <text>]  complete the task

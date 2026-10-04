@@ -6,7 +6,7 @@ import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { toast } from "sonner";
 
-import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
+import { TASK_PRIORITY_ORDER, TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
 import { useLiveAgents } from "@/hooks/use-live-agents";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
@@ -56,6 +56,14 @@ export function BoardClient({
     }
     for (const task of tasks) {
       grouped.get(task.status)?.push(task);
+    }
+    for (const list of grouped.values()) {
+      list.sort((a, b) => {
+        const pA = TASK_PRIORITY_ORDER[a.priority ?? "normal"] ?? 2;
+        const pB = TASK_PRIORITY_ORDER[b.priority ?? "normal"] ?? 2;
+        if (pA !== pB) return pA - pB;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
     }
     return grouped;
   }, [tasks]);

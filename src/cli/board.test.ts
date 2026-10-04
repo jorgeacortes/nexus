@@ -40,6 +40,7 @@ function task(overrides: Partial<Task> = {}): Task {
     title: "ship the board",
     description: null,
     status: "ready",
+    priority: "normal",
     assignee: null,
     agentName: null,
     harness: null,
