@@ -4,6 +4,8 @@
  * project (the project is a tag, never a board).
  */
 
+import { normalizeEffort, normalizeModelId } from "@/domain/tasks/model";
+
 export const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -71,24 +73,39 @@ export type Effort = (typeof EFFORT_LEVELS)[number];
  * The hand-maintained model registry: `harness → model → supported efforts`.
  * Effort vocabulary belongs to the model, not the harness — the harness only
  * constrains which models it offers. Adding a model means editing this constant.
+ *
+ * Keys are canonical ids (`model.ts`): the harness's own id, provider prefix
+ * stripped. The list mirrors what this machine is actually set up to run — for
+ * pi, `enabledModels` in `~/.pi/agent/settings.json` and the `thinkingLevelMap`
+ * pi's own catalog declares for each (`~/.pi/agent/models-store.json`) — not the
+ * whole catalog of every provider. A live model outside the registry still
+ * records and renders: observed values are never validated against this list
+ * (see `normalizeAssignment`).
  */
 export const KNOWN_MODELS = {
   pi: {
-    "claude-sonnet-5.5": ["low", "medium", "high", "max"],
-    "claude-opus-5.5": ["low", "medium", "high", "max"],
-    "gpt-5.6-luna": ["low", "medium", "high", "xhigh"],
-    "gemini-3.8-flash": ["minimal", "low", "medium", "high"],
-    "grok-4.6": ["low", "medium", "high"],
+    "deepseek-v4.1-flash": ["low", "high", "max"],
+    "glm-5.3-flash": ["low", "high", "max"],
+    "gpt-5.6-luna": ["low", "medium", "high", "xhigh", "max"],
+    "grok-4.6": ["low", "medium", "high", "xhigh"],
   },
   claude_code: {
-    "claude-sonnet-5.5": ["low", "medium", "high", "max"],
-    "claude-opus-5.5": ["low", "medium", "high", "max"],
+    "claude-sonnet-5-5": ["low", "medium", "high", "max"],
+    "claude-opus-5-5": ["low", "medium", "high", "max"],
   },
+  // Cursor is a GUI: Nexus never assigns it a model, it only reads what the
+  // session runs (`~/.cursor/chats/<hash>/<session>/store.db` → `lastUsedModel`)
+  // plus the effort Cursor records per model in `~/.cursor/cli-config.json`.
+  // The effort lists below are the shared vocabularies of the same model
+  // families, kept for the operator's hand-tracked assignments.
   cursor: {
-    "claude-sonnet-5.5": ["low", "medium", "high", "max"],
-    "gpt-5.6-luna": ["low", "medium", "high", "xhigh"],
-    "gemini-3.8-flash": ["minimal", "low", "medium", "high"],
-    "grok-4.6": ["low", "medium", "high"],
+    "claude-sonnet-5-5": ["low", "medium", "high", "max"],
+    "claude-opus-5-5": ["low", "medium", "high", "max"],
+    "claude-fable-5": ["low", "medium", "high", "max"],
+    "claude-fable-5-1": ["low", "medium", "high", "max"],
+    "gpt-5.6-sol": ["low", "medium", "high", "xhigh", "max"],
+    "grok-4.6": ["low", "medium", "high", "xhigh"],
+    "grok-4.7": ["low", "medium", "high", "xhigh"],
   },
   // antigravity (`agy`) hands out models with the effort baked into the id it
   // prints (`agy models` lists `gemini-3.8-flash-high`), but the CLI accepts the
@@ -247,6 +264,14 @@ export type ClaimTaskInput = {
   paneId?: string | null;
   agentName?: string | null;
   harness?: Harness | null;
+  /**
+   * The model/effort the claiming pane is *observed* to run, resolved from the
+   * harness's own session state by the live-agent adapter. Only the server ever
+   * sets these (the claim API does not accept them from a client), and they are
+   * recorded as ground truth — never validated against the registry.
+   */
+  model?: string | null;
+  effort?: string | null;
 };
 
 export type CompleteTaskInput = { notes?: string | null };
@@ -288,35 +313,57 @@ const EMPTY_ASSIGNMENT: TaskAssignment = {
 };
 
 /**
- * Validates and normalizes an assignment. The `(model, effort)` pair is checked
- * against the registry; a harness may only carry models it offers. Assigning a
- * task to `me` (or nobody) clears every agent field.
+ * Where a (model, effort) pair came from. `assigned` is a choice — the operator
+ * picked it, so the registry validates it. `observed` is ground truth read from
+ * the harness's own session state; a registry that lags a harness release must
+ * never make a claim or a card fail, so observed values are normalised but not
+ * validated.
  */
-export function normalizeAssignment(input: {
-  assignee?: AssigneeType | null;
-  agentName?: string | null;
-  harness?: Harness | null;
-  model?: string | null;
-  effort?: string | null;
-  herdrPaneId?: string | null;
-}): TaskAssignment {
+export type ModelSource = "assigned" | "observed";
+
+/**
+ * Validates and normalizes an assignment. The `(model, effort)` pair is checked
+ * against the registry when it was assigned; a harness may only carry models it
+ * offers. Assigning a task to `me` (or nobody) clears every agent field.
+ */
+export function normalizeAssignment(
+  input: {
+    assignee?: AssigneeType | null;
+    agentName?: string | null;
+    harness?: Harness | null;
+    model?: string | null;
+    effort?: string | null;
+    herdrPaneId?: string | null;
+  },
+  source: ModelSource = "assigned",
+): TaskAssignment {
   const assignee = input.assignee ?? null;
   if (assignee !== "agent") {
     return { ...EMPTY_ASSIGNMENT, assignee };
   }
 
   const harness = input.harness ?? null;
-  const model = input.model ?? null;
-  const effort = input.effort ?? null;
+  const model = normalizeModelId(input.model);
+  const effort = normalizeEffort(input.effort);
 
-  if (harness && model && !isKnownModelForHarness(harness, model)) {
-    throw new TaskValidationError(`Model "${model}" is not offered by harness "${harness}".`);
-  }
-  if (effort && !model) {
-    throw new TaskValidationError("An effort requires a model.");
-  }
-  if (model && effort && !isValidEffort(model, effort, harness)) {
-    throw new TaskValidationError(`Effort "${effort}" is not valid for model "${model}".`);
+  if (source === "assigned") {
+    if (harness && model && !isKnownModelForHarness(harness, model)) {
+      throw new TaskValidationError(`Model "${model}" is not offered by harness "${harness}".`);
+    }
+    if (effort && !model) {
+      throw new TaskValidationError("An effort requires a model.");
+    }
+    if (model && effort && !isValidEffort(model, effort, harness)) {
+      throw new TaskValidationError(`Effort "${effort}" is not valid for model "${model}".`);
+    }
+    return {
+      assignee,
+      agentName: normalizeAgentName(input.agentName),
+      harness,
+      model,
+      effort,
+      herdrPaneId: input.herdrPaneId ?? null,
+    };
   }
 
   return {
@@ -324,7 +371,9 @@ export function normalizeAssignment(input: {
     agentName: normalizeAgentName(input.agentName),
     harness,
     model,
-    effort,
+    // An observed effort is only meaningful next to the model it was observed
+    // for; with no model there is nothing to render it against.
+    effort: model ? effort : null,
     herdrPaneId: input.herdrPaneId ?? null,
   };
 }
@@ -369,8 +418,12 @@ export function createTask(input: CreateTaskInput): Task {
 /**
  * Claims a task for an agent pane: `backlog`/`ready` → `in_progress`. A claim
  * from the same pane that already holds the task is idempotent (returns the task
- * unchanged); a claim from any other pane is rejected. Existing model/effort and
- * a pre-recorded pane are preserved.
+ * unchanged); a claim from any other pane is rejected. The pane's *observed*
+ * model/effort (resolved by the adapter from the harness's own session state)
+ * wins over whatever the task carried, so a card keeps its model after the pane
+ * goes offline and `nx task show` stops reporting "—". When the observed model
+ * changed, an effort that belonged to the old model is dropped instead of being
+ * carried over.
  */
 export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
   const now = new Date();
@@ -378,7 +431,10 @@ export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
 
   if (task.status === "in_progress") {
     if (paneId !== null && task.herdrPaneId === paneId) {
-      return task;
+      // A repeat same-pane claim is idempotent, but it is also how an agent
+      // announces itself on every run: refresh the observed state so a card
+      // claimed before the model was readable picks it up.
+      return refreshObservedState(task, input, paneId) ?? task;
     }
     throw new TaskAlreadyClaimedError(task.id, task.herdrPaneId);
   }
@@ -386,24 +442,51 @@ export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
     throw new TaskTransitionError(`A task in "${task.status}" cannot be claimed.`);
   }
 
-  const assignment = normalizeAssignment({
-    assignee: "agent",
-    agentName: normalizeAgentName(input.agentName) ?? task.agentName,
-    harness: input.harness !== undefined ? input.harness : task.harness,
-    model: task.model,
-    effort: task.effort,
-    herdrPaneId: paneId ?? task.herdrPaneId,
-  });
-
   return {
     ...task,
     status: "in_progress",
-    ...assignment,
+    ...observedAssignment(task, input, paneId),
     claimedAt: now,
     completedAt: null,
     completionNotes: null,
     updatedAt: now,
   };
+}
+
+/**
+ * The pane's observed state folded into a validated assignment. The observed
+ * model wins over a model recorded earlier; an observed model change drops an
+ * effort that belonged to the old model.
+ */
+function observedAssignment(task: Task, input: ClaimTaskInput, paneId: string | null): TaskAssignment {
+  const observedModel = normalizeModelId(input.model);
+  const observedEffort = normalizeEffort(input.effort);
+  const sameModel = observedModel === null || observedModel === task.model;
+
+  return normalizeAssignment(
+    {
+      assignee: "agent",
+      agentName: normalizeAgentName(input.agentName) ?? task.agentName,
+      harness: input.harness !== undefined ? input.harness : task.harness,
+      model: observedModel ?? task.model,
+      effort: sameModel ? (observedEffort ?? task.effort) : observedEffort,
+      herdrPaneId: paneId ?? task.herdrPaneId,
+    },
+    "observed",
+  );
+}
+
+/** The updated task when a repeat claim changed something, else null. */
+function refreshObservedState(task: Task, input: ClaimTaskInput, paneId: string): Task | null {
+  const assignment = observedAssignment(task, input, paneId);
+  const changed =
+    assignment.assignee !== task.assignee ||
+    assignment.agentName !== task.agentName ||
+    assignment.harness !== task.harness ||
+    assignment.model !== task.model ||
+    assignment.effort !== task.effort ||
+    assignment.herdrPaneId !== task.herdrPaneId;
+  return changed ? { ...task, ...assignment, updatedAt: new Date() } : null;
 }
 
 /**

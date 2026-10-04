@@ -70,7 +70,7 @@ describe("DrizzleTaskRepository", () => {
   });
 
   it("rejects an invalid (model, effort) pair at the repository boundary", async () => {
-    await expect(repo.save({ title: "bad", assignee: "agent", model: "gpt-5.6-luna", effort: "max" })).rejects.toThrow(
+    await expect(repo.save({ title: "bad", assignee: "agent", model: "grok-4.6", effort: "max" })).rejects.toThrow(
       /not valid/,
     );
   });

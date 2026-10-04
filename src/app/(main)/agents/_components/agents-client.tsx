@@ -1,9 +1,11 @@
 "use client";
 
-import { Activity, Bot, FolderGit2, Terminal, TriangleAlert } from "lucide-react";
+import { Activity, Bot, Cpu, FolderGit2, Terminal, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 
+import { ModelTag } from "@/components/model-tag";
 import { Badge } from "@/components/ui/badge";
+import { modelLabel } from "@/domain/tasks/model";
 import { HARNESS_LABELS } from "@/domain/tasks/task";
 import { useLiveAgents } from "@/hooks/use-live-agents";
 import type { TaskDto } from "@/lib/dto";
@@ -106,7 +108,13 @@ export function AgentsClient({ initialLive, tasks }: { initialLive: LiveAgentsPa
                         <Terminal className="size-3" />
                         {agent.paneId}
                       </Badge>
-                      {agent.model ? <Badge variant="secondary">{agent.model}</Badge> : null}
+                      {agent.model ? (
+                        <Badge variant="secondary" className="gap-1">
+                          <Cpu className="size-3" />
+                          {modelLabel(agent.model)}
+                          {agent.effort ? <span className="text-muted-foreground">· {agent.effort}</span> : null}
+                        </Badge>
+                      ) : null}
                       {agent.tabLabel && agent.tabLabel !== "1" ? (
                         <Badge variant="ghost" className="text-muted-foreground">
                           tab {agent.tabLabel}
@@ -151,6 +159,7 @@ export function AgentsClient({ initialLive, tasks }: { initialLive: LiveAgentsPa
                   <div className="mt-2">
                     <AssigneeChip task={task} />
                   </div>
+                  <ModelTag task={task} className="mt-1.5" />
                 </article>
               ))}
             </div>

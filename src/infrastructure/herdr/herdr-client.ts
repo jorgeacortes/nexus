@@ -3,6 +3,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { normalizeEffort, normalizeModelId } from "@/domain/tasks/model";
+import { harnessFromAgentKind } from "@/domain/tasks/task";
+import { type HarnessSession, resolveObservedModel } from "@/infrastructure/herdr/session-model";
+
 export type HerdrAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 
 /** Live agent/pane state as reported by the Herdr session snapshot. */
@@ -16,10 +20,16 @@ export interface HerdrAgentState {
   tabLabel: string;
   cwd: string;
   terminalTitle: string;
-  /** Best-effort live model (e.g. "Claude/Sonnet 5.5"); SQLite owns the assignment. */
+  /** Best-effort live model, canonical id (e.g. "claude-sonnet-5-5"); SQLite owns the assignment. */
   model: string | null;
   /** Best-effort live reasoning effort (e.g. "high", "medium"); falls back to SQLite tasks.effort when null. */
   effort: string | null;
+  /**
+   * The harness's own session descriptor (transcript path or session id). Nexus
+   * reads it to establish the model the session is really running, instead of
+   * trusting Herdr's display label.
+   */
+  session: HarnessSession;
   /** Herdr's current topic for the agent (its last line of conversation). */
   topic: string | null;
   focused: boolean;
@@ -152,6 +162,7 @@ export function parseSnapshot(raw: RawSnapshot): HerdrSnapshot {
       terminalTitle: String(agent.terminal_title_stripped ?? agent.terminal_title ?? ""),
       model: modelOf(agent.tokens),
       effort: effortOf(agent.tokens),
+      session: sessionOf(agent.agent_session),
       topic: topicOf(agent.tokens),
       focused: Boolean(agent.focused),
     };
@@ -176,19 +187,34 @@ function modelOf(tokens: unknown): string | null {
   if (!tokens || typeof tokens !== "object") return null;
   const record = tokens as Record<string, unknown>;
   const value = record.quota_provider_model ?? record.quota_model;
-  return typeof value === "string" && value.trim() !== "" ? value : null;
+  return normalizeModelId(typeof value === "string" ? value : null);
+}
+
+/** Herdr's `agent_session` descriptor: how to find the harness's own session state. */
+function sessionOf(value: unknown): HarnessSession {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const sessionValue = typeof record.value === "string" ? record.value : null;
+  if (!sessionValue) return null;
+  return {
+    agent: String(record.agent ?? ""),
+    kind: String(record.kind ?? ""),
+    source: String(record.source ?? ""),
+    value: sessionValue,
+  };
 }
 
 /**
  * Extracts live reasoning effort from agent tokens (quota_effort, effort, etc.).
- * If Herdr tokens do not contain an effort field, returns null and consumers fall
- * back to the stored tasks.effort from SQLite.
+ * Herdr tokens carry no effort today; when they do not, the adapter falls back to
+ * the effort the harness's own session state records (pi's `thinkingLevel`,
+ * Claude Code's `effort`, Cursor's per-model parameter).
  */
 function effortOf(tokens: unknown): string | null {
   if (!tokens || typeof tokens !== "object") return null;
   const record = tokens as Record<string, unknown>;
   const value = record.quota_effort ?? record.effort;
-  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+  return normalizeEffort(typeof value === "string" ? value : null);
 }
 
 function topicOf(tokens: unknown): string | null {
@@ -208,6 +234,15 @@ function stringOrNull(value: unknown): string | null {
  */
 export class HerdrClient implements HerdrPort {
   async snapshot(): Promise<HerdrSnapshot> {
+    return hydrate(await this.readSnapshot());
+  }
+
+  /**
+   * Enriches the parsed snapshot with the model each pane's own harness session
+   * reports (see `session-model.ts`). Herdr's label is only a fallback, so the
+   * resolved value is what the board, the claim, and `nx task show` all see.
+   */
+  private async readSnapshot(): Promise<HerdrSnapshot> {
     try {
       const response = await herdrRequest("session.snapshot");
       if (response.error) {
@@ -261,4 +296,20 @@ export class HerdrClient implements HerdrPort {
       child.on("error", reject);
     });
   }
+}
+
+/** Resolves each agent's observed model from its harness's own session state. */
+async function hydrate(snapshot: HerdrSnapshot): Promise<HerdrSnapshot> {
+  const agents = await Promise.all(
+    snapshot.agents.map(async (agent) => {
+      const observed = await resolveObservedModel({
+        harness: harnessFromAgentKind(agent.agent),
+        session: agent.session,
+        quotaModel: agent.model,
+        quotaEffort: agent.effort,
+      });
+      return { ...agent, model: observed.model, effort: observed.effort };
+    }),
+  );
+  return { ...snapshot, agents };
 }

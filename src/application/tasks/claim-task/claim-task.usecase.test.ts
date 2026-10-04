@@ -12,8 +12,8 @@ function liveAgents(agents: LiveAgentInfo[] = []): LiveAgentPort {
   return { list: async () => agents };
 }
 
-function agent(paneId: string, agentKind: string): LiveAgentInfo {
-  return { paneId, agentKind, status: "working", cwd: "/home/sandbox/ws/biznagatec-ws/nexus" };
+function agent(paneId: string, agentKind: string, model: string | null = null): LiveAgentInfo {
+  return { paneId, agentKind, status: "working", cwd: "/home/sandbox/ws/biznagatec-ws/nexus", model, effort: null };
 }
 
 describe("ClaimTaskUseCase", () => {
@@ -39,6 +39,34 @@ describe("ClaimTaskUseCase", () => {
     expect(claimed.agentName).toBe("agy");
     expect(claimed.harness).toBe("agy");
     expect(claimed.herdrPaneId).toBe("wA:p1");
+  });
+
+  it("records the model the pane's own session reports", async () => {
+    const repo = new DrizzleTaskRepository(createTestDb());
+    const task = await repo.save({ title: "carry the model", status: "ready" });
+    const claimed = await new ClaimTaskUseCase(repo, liveAgents([agent("wR:p1", "pi", "deepseek-v4.1-flash")])).execute(
+      task.id,
+      { paneId: "wR:p1" },
+    );
+    expect(claimed.harness).toBe("pi");
+    expect(claimed.model).toBe("deepseek-v4.1-flash");
+  });
+
+  it("keeps a stored model when the pane reports none", async () => {
+    const repo = new DrizzleTaskRepository(createTestDb());
+    const task = await repo.save({
+      title: "keep the model",
+      status: "ready",
+      assignee: "agent",
+      harness: "pi",
+      model: "gpt-5.6-luna",
+      effort: "xhigh",
+    });
+    const claimed = await new ClaimTaskUseCase(repo, liveAgents([agent("wR:p1", "pi")])).execute(task.id, {
+      paneId: "wR:p1",
+    });
+    expect(claimed.model).toBe("gpt-5.6-luna");
+    expect(claimed.effort).toBe("xhigh");
   });
 
   it("leaves the identity empty when the pane is not a live agent", async () => {

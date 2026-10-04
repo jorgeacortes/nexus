@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/copy-button";
+import { ModelTag } from "@/components/model-tag";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -257,6 +258,9 @@ function TaskRow({
           ) : null}
           <CopyButton value={task.id} size="icon-xs" title="Copy task ID" toastMessage="Task ID copied" />
         </div>
+        {task.assignee === "agent" || task.agentName || liveAgent ? (
+          <ModelTag task={task} liveAgent={liveAgent} className="mt-1.5" />
+        ) : null}
         {task.needsHuman && task.needsHumanReason ? (
           <p className="mt-1.5 text-xs text-muted-foreground">{task.needsHumanReason}</p>
         ) : null}

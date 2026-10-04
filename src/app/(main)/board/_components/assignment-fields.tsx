@@ -5,6 +5,7 @@ import { Ban, Bot, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { modelLabel } from "@/domain/tasks/model";
 import {
   type AssigneeType,
   type Effort,
@@ -56,6 +57,11 @@ export function AssignmentFields({
 }) {
   const models = value.harness ? modelsForHarness(value.harness) : [];
   const efforts = value.model ? effortsForModel(value.model, value.harness) : [];
+  // An observed model/effort can be outside the hand-maintained registry; keep
+  // the recorded value visible in the picker instead of silently resetting it.
+  const modelOptions = value.model && !models.includes(value.model) ? [...models, value.model] : models;
+  const effortOptions =
+    value.effort && !efforts.includes(value.effort as Effort) ? [...efforts, value.effort as Effort] : efforts;
 
   function setHarness(harness: Harness) {
     onChange({ assignee: "agent", harness, model: modelsForHarness(harness)[0] ?? null, effort: null });
@@ -124,9 +130,9 @@ export function AssignmentFields({
               onChange={(event) => setModel(event.target.value)}
             >
               <NativeSelectOption value="">—</NativeSelectOption>
-              {models.map((model) => (
+              {modelOptions.map((model) => (
                 <NativeSelectOption key={model} value={model}>
-                  {model}
+                  {modelLabel(model)}
                 </NativeSelectOption>
               ))}
             </NativeSelect>
@@ -140,7 +146,7 @@ export function AssignmentFields({
               onChange={(event) => onChange({ ...value, effort: event.target.value || null })}
             >
               <NativeSelectOption value="">—</NativeSelectOption>
-              {efforts.map((effort) => (
+              {effortOptions.map((effort) => (
                 <NativeSelectOption key={effort} value={effort}>
                   {effort}
                 </NativeSelectOption>

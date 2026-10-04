@@ -1,7 +1,7 @@
 import { AgentUnreachableError, NoEligibleAgentError, TaskNotFoundError } from "@/application/tasks/errors";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import { buildDispatchPrompt } from "@/domain/tasks/dispatch-prompt";
-import { agentIdentityForPane, type LiveAgentInfo, type LiveAgentPort } from "@/domain/tasks/live-agents";
+import { agentStateForPane, type LiveAgentInfo, type LiveAgentPort } from "@/domain/tasks/live-agents";
 import type { ProjectReferencePort } from "@/domain/tasks/project-reference";
 import { isKnownModelForHarness, type Task, TaskValidationError } from "@/domain/tasks/task";
 import type { TaskRepository } from "@/domain/tasks/task.repository";
@@ -59,7 +59,7 @@ export class DispatchTaskUseCase {
     // the board reads. A pane Herdr does not report clears the pointers instead of
     // keeping a stale name. A model belongs to the harness it was chosen for, so a
     // harness that cannot run the recorded model drops the (model, effort) pair.
-    const identity = agentIdentityForPane(agents, paneId);
+    const identity = agentStateForPane(agents, paneId);
     const keepsModel = !identity.harness || !task.model || isKnownModelForHarness(identity.harness, task.model);
 
     return this.tasks.update(id, {

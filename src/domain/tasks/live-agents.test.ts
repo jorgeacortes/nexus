@@ -1,22 +1,37 @@
 import { describe, expect, it } from "vitest";
 
-import { agentIdentityForPane, type LiveAgentInfo } from "@/domain/tasks/live-agents";
+import { agentStateForPane, type LiveAgentInfo } from "@/domain/tasks/live-agents";
 
-function agent(paneId: string, agentKind: string): LiveAgentInfo {
-  return { paneId, agentKind, status: "working", cwd: "/ws/nexus" };
+function agent(paneId: string, agentKind: string, model: string | null = null): LiveAgentInfo {
+  return { paneId, agentKind, status: "working", cwd: "/ws/nexus", model, effort: model ? "high" : null };
 }
 
-describe("agentIdentityForPane", () => {
-  it("resolves the pane's live kind and mapped harness", () => {
-    const agents = [agent("wR:p1", "claude"), agent("wP:p4", "codex"), agent("wA:p1", "agy")];
-    expect(agentIdentityForPane(agents, "wR:p1")).toEqual({ agentName: "claude", harness: "claude_code" });
-    expect(agentIdentityForPane(agents, "wP:p4")).toEqual({ agentName: "codex", harness: null });
-    expect(agentIdentityForPane(agents, "wA:p1")).toEqual({ agentName: "agy", harness: "agy" });
+describe("agentStateForPane", () => {
+  it("resolves the pane's live kind, mapped harness, and observed model", () => {
+    const agents = [
+      agent("wR:p1", "claude", "claude-sonnet-5-5"),
+      agent("wP:p4", "codex"),
+      agent("wA:p1", "agy", "gemini-3.8-flash"),
+    ];
+    expect(agentStateForPane(agents, "wR:p1")).toEqual({
+      agentName: "claude",
+      harness: "claude_code",
+      model: "claude-sonnet-5-5",
+      effort: "high",
+    });
+    expect(agentStateForPane(agents, "wP:p4")).toEqual({
+      agentName: "codex",
+      harness: null,
+      model: null,
+      effort: null,
+    });
+    expect(agentStateForPane(agents, "wA:p1")).toMatchObject({ harness: "agy", model: "gemini-3.8-flash" });
   });
 
-  it("yields no identity for an unknown, empty, or missing pane", () => {
-    expect(agentIdentityForPane([agent("wR:p1", "pi")], "wR:p9")).toEqual({ agentName: null, harness: null });
-    expect(agentIdentityForPane([agent("wR:p1", "pi")], null)).toEqual({ agentName: null, harness: null });
-    expect(agentIdentityForPane([agent("wR:p1", "  ")], "wR:p1")).toEqual({ agentName: null, harness: null });
+  it("yields no state for an unknown, empty, or missing pane", () => {
+    const none = { agentName: null, harness: null, model: null, effort: null };
+    expect(agentStateForPane([agent("wR:p1", "pi")], "wR:p9")).toEqual(none);
+    expect(agentStateForPane([agent("wR:p1", "pi")], null)).toEqual(none);
+    expect(agentStateForPane([agent("wR:p1", "  ")], "wR:p1")).toEqual(none);
   });
 });

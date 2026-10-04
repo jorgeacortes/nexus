@@ -20,7 +20,7 @@ function projectsWith(id = "p-nexus", folderPath: string | null = FOLDER): Proje
 const liveAgents = (agents: LiveAgentInfo[]): LiveAgentPort => ({ list: async () => agents });
 
 function agent(paneId: string, status: string, cwd: string, agentKind = "pi"): LiveAgentInfo {
-  return { paneId, agentKind, status, cwd };
+  return { paneId, agentKind, status, cwd, model: null, effort: null };
 }
 
 function recordingPrompt(): { port: AgentPromptPort; calls: Array<[string, string]> } {

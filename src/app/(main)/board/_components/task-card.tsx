@@ -1,8 +1,7 @@
 "use client";
 
-import { Cpu } from "lucide-react";
 import { useDrag } from "react-dnd";
-
+import { ModelTag } from "@/components/model-tag";
 import { Badge } from "@/components/ui/badge";
 import { dndRef } from "@/lib/dnd";
 import type { TaskDto } from "@/lib/dto";
@@ -60,9 +59,6 @@ export function TaskCard({
   );
 
   const isAgent = task.assignee === "agent" || Boolean(task.agentName) || Boolean(liveAgent);
-  const activeModel = liveAgent?.model ?? task.model;
-  const activeEffort = liveAgent?.effort ?? task.effort;
-  const modelEffort = [activeModel, activeEffort].filter(Boolean).join(" · ");
 
   return (
     <button
@@ -84,6 +80,9 @@ export function TaskCard({
         <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{task.description}</p>
       ) : null}
 
+      {/* Its own row: a long model id wraps instead of being truncated. */}
+      {isAgent ? <ModelTag task={task} liveAgent={liveAgent} className="mt-1.5" /> : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {task.priority && PRIORITY_BADGES[task.priority] ? (
           <span
@@ -100,17 +99,7 @@ export function TaskCard({
             {projectName}
           </Badge>
         ) : null}
-        <AssigneeChip task={task} showDetails={false} />
-        {isAgent && modelEffort ? (
-          <Badge
-            variant="outline"
-            className="max-w-[170px] truncate text-[10px] font-normal text-muted-foreground/90 border-border/70 bg-muted/30 gap-1 px-1.5 py-0.5"
-            title={modelEffort}
-          >
-            <Cpu className="size-2.5 shrink-0" />
-            <span className="truncate">{modelEffort}</span>
-          </Badge>
-        ) : null}
+        <AssigneeChip task={task} />
         {liveAgent ? (
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             <span className={cn("size-1.5 rounded-full", AGENT_STATUS_DOT[liveAgent.status])} />

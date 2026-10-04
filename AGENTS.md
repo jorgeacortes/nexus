@@ -53,17 +53,59 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 
 - Herdr exposes a JSON-RPC API over a Unix socket via `herdr api snapshot` / schema-driven methods. Do not guess the protocol; `herdr api schema --json` is the source of truth for methods and params.
 - Herdr sees terminal harnesses (pi, Claude Code, Agy) but not Cursor. SQLite owns assignments (harness/model/effort); Herdr owns live status. The Kanban UI composes both.
-- Agent identity (`agent_name` + `harness`) is resolved from the live snapshot when a task is claimed or dispatched (`agentIdentityForPane` in `src/domain/tasks/live-agents.ts`): the pane's agent kind, never its Herdr tab id. Herdr being unavailable leaves both null (the chip falls back to "Agent") and never fails a claim. That resolver is the only writer of these fields on the claim/dispatch paths.
-- The model/effort tag on a board card describes what the agent is *running*, not
-  who owns the card: `AssigneeChip` stays the owner/harness chip, and `TaskCard`
-  renders a separate tag next to it. The live model wins while the pane is online
-  (`LiveAgent.model`, from Herdr's `quota_provider_model`/`quota_model`). Effort
-  has no Herdr source — a live `herdr api snapshot` carries `quota_model`,
-  `quota_provider_model`, `quota_topic`, etc., but nothing effort-shaped — so the
-  tag falls back to the stored `tasks.effort` recorded at assignment; `effortOf`
-  in `herdr-client.ts` already consumes a `quota_effort`/`effort` token if Herdr
-  ever adds one. The tag is hidden when the card has no agent or no model/effort
-  to show, and truncates at 170px to keep cards narrow.
+- Agent identity (`agent_name` + `harness`) is resolved from the live snapshot when a task is claimed or dispatched (`agentStateForPane` in `src/domain/tasks/live-agents.ts`): the pane's agent kind, never its Herdr tab id. Herdr being unavailable leaves both null (the chip falls back to "Agent") and never fails a claim. That resolver is the only writer of these fields on the claim/dispatch paths (it now also carries the pane's observed model/effort — see below).
+- The model/effort label on a board card describes what the agent is *running*,
+  not who owns the card: `AssigneeChip` is the owner/harness chip only, and the
+  card renders a separate `ModelTag` (`src/components/model-tag.tsx`) on its own
+  row. See "Which model is the agent running?" below for where the value comes
+  from and why Herdr's status line is only a fallback.
+
+## Which model is the agent running?
+
+**Decision: the harness's own session state is authoritative for the model; Herdr's
+`tokens.quota_provider_model`/`quota_model` is a display label used only as a
+fallback when that state cannot be read. The stored `tasks.model` is the fallback
+once the pane is offline.** This was verified against the running machine, not
+assumed — Herdr's label disagreed with the harnesses in three different ways:
+
+| harness | Herdr label (before) | harness's own state (ground truth) | source |
+| --- | --- | --- | --- |
+| pi | `opencode-go/deepseek-v4.1-flash` | `deepseek-v4.1-flash`, `thinkingLevel: high` | `agent_session.value` is the transcript path → first entries carry `modelId`/`provider`/`thinkingLevel` |
+| Claude Code | `Claude/Sonnet 5.5` | `claude-sonnet-5-5`, `effort: high` | `agent_session.value` is the session id → `~/.claude/projects/<slug>/<id>.jsonl`, assistant turns carry `message.model`, `effort`/`perTurnEffort`; `~/.claude/settings.json` `modelSettings[model].effortLevel` is the fallback |
+| Cursor | `Claude/Sonnet 5.5` (wrong) or no tokens at all | `grok-4.7` (both live panes) | `agent_session.value` is the session id → `~/.cursor/chats/<hash>/<id>/store.db`, `meta` value is hex-encoded JSON with `lastUsedModel`; per-model effort in `~/.cursor/cli-config.json` `modelParameters` |
+
+- Resolution lives in `src/infrastructure/herdr/session-model.ts`; `HerdrClient.snapshot()`
+  enriches each agent with it (`hydrate`). Reads are bounded head/tail slices,
+  cached by file mtime+size, and best-effort: any failure yields "unknown", never
+  an exception. Cursor's `store.db` is opened read-only, with a raw hex scan of
+  `"lastUsedModel":"` as fallback because the container mounts the directory `:ro`
+  and SQLite cannot create the `-shm` sidecar a WAL database wants.
+- **Canonical model id** (`src/domain/tasks/model.ts`): the harness's id, provider
+  prefix stripped, lowercased, spaces → dashes, then a short alias table for
+  display labels (`Claude/Sonnet 5.5` → `claude-sonnet-5-5`) and historical dotted
+  ids. Everything the app stores or renders is this id; `modelLabel()` renders it.
+- **The registry (`KNOWN_MODELS`) is the assignment vocabulary, not a validator of
+  observed values.** Pi's entry mirrors `enabledModels` in `~/.pi/agent/settings.json`
+  with the efforts pi's own catalog declares (`thinkingLevelMap` in
+  `~/.pi/agent/models-store.json`), which is how `deepseek-v4.1-flash` (`low`,
+  `high`, `max`) got in; cursor's entry mirrors the models `~/.cursor/cli-config.json`
+  records. `normalizeAssignment(input, "assigned")` validates a chosen pair, but
+  `"observed"` values are only normalised — a registry that lags a harness release
+  must never fail a claim or blank a card.
+- **`nx claim` records the pane's observed model/effort** (`agentStateForPane` →
+  `ClaimTaskInput.model/effort` → `claimTask`), so an offline card keeps its model
+  and `nx task show`'s model column stops being permanently "—". The claim API does
+  not accept a client-supplied model: the server resolves it. When the observed
+  model changed, an effort that belonged to the old model is dropped.
+- **UI rule: the model never lives inside a chip.** `ModelTag` gives it its own row
+  under the title/description, wrapping instead of truncating (the old chip cut off
+  at `max-w-[170px]`), with no `title` escape hatch; `AssigneeChip` is owner/harness
+  only. A live agent whose model cannot be resolved renders "Model unknown" rather
+  than a blank that reads as "no model"; a card with no agent and no model stays
+  compact. Inbox rows and the Agents screen use the same component.
+- In Docker the three state directories are mounted read-only under `/harness`
+  (`HARNESS_STATE_DIR=/harness`, see `docker-compose.yml`); on the host the
+  resolver reads the real `~/.pi/agent`, `~/.claude`, `~/.cursor`.
 
 ## Host listeners (Servers screen)
 

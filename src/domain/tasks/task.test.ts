@@ -22,20 +22,20 @@ import {
 describe("effort validation", () => {
   it("accepts an effort the model supports", () => {
     expect(isValidEffort("gpt-5.6-luna", "xhigh")).toBe(true);
-    expect(isValidEffort("claude-sonnet-5.5", "max")).toBe(true);
+    expect(isValidEffort("claude-sonnet-5-5", "max")).toBe(true);
   });
 
   it("rejects an effort the model does not support", () => {
-    expect(isValidEffort("gpt-5.6-luna", "max")).toBe(false);
+    expect(isValidEffort("gpt-5.6-luna", "minimal")).toBe(false);
     expect(isValidEffort("gemini-3.8-flash", "xhigh")).toBe(false);
   });
 
   it("keeps a model's effort vocabulary consistent per harness", () => {
-    expect(effortsForModel("gemini-3.8-flash", "agy")).toEqual(["low", "medium", "high"]);
-    expect(effortsForModel("gemini-3.8-flash", "pi")).toContain("minimal");
-    // A shared model name may expose different efforts under different harnesses.
-    expect(isValidEffort("gemini-3.8-flash", "minimal", "agy")).toBe(false);
-    expect(isValidEffort("gemini-3.8-flash", "minimal", "pi")).toBe(true);
+    // The same model name may expose different efforts under different harnesses.
+    expect(effortsForModel("claude-opus-5-5", "claude_code")).toContain("max");
+    expect(effortsForModel("claude-opus-5-5", "agy")).toEqual(["low", "medium", "high"]);
+    expect(isValidEffort("claude-opus-5-5", "max", "agy")).toBe(false);
+    expect(isValidEffort("claude-opus-5-5", "max", "claude_code")).toBe(true);
     expect(effortsForModel("gemini-3.1-pro", "agy")).toEqual(["low", "high"]);
     expect(effortsForModel("gpt-oss-120b", "agy")).toEqual(["medium"]);
   });
@@ -80,15 +80,36 @@ describe("normalizeAssignment", () => {
   });
 
   it("rejects an effort that does not belong to the model", () => {
-    expect(() => normalizeAssignment({ assignee: "agent", model: "gpt-5.6-luna", effort: "max" })).toThrow(
+    expect(() => normalizeAssignment({ assignee: "agent", model: "gpt-5.6-luna", effort: "minimal" })).toThrow(
       TaskValidationError,
     );
   });
 
   it("rejects a model the harness does not offer", () => {
-    expect(() => normalizeAssignment({ assignee: "agent", harness: "cursor", model: "claude-opus-5.5" })).toThrow(
+    expect(() => normalizeAssignment({ assignee: "agent", harness: "cursor", model: "deepseek-v4.1-flash" })).toThrow(
       /not offered/,
     );
+  });
+
+  it("normalises a harness display label into a registry id", () => {
+    expect(
+      normalizeAssignment({ assignee: "agent", harness: "claude_code", model: "Claude/Sonnet 5.5", effort: "high" }),
+    ).toMatchObject({ harness: "claude_code", model: "claude-sonnet-5-5", effort: "high" });
+    expect(
+      normalizeAssignment({ assignee: "agent", harness: "pi", model: "opencode-go/deepseek-v4.1-flash" }),
+    ).toMatchObject({ harness: "pi", model: "deepseek-v4.1-flash" });
+  });
+
+  it("accepts an observed model the registry does not know, without an effort check", () => {
+    // Ground truth: a harness release must never make a claim or a card fail.
+    expect(
+      normalizeAssignment({ assignee: "agent", harness: "pi", model: "qwen3.8-flash", effort: "medium" }, "observed"),
+    ).toMatchObject({ model: "qwen3.8-flash", effort: "medium" });
+    // An observed effort with no model has nothing to render against.
+    expect(normalizeAssignment({ assignee: "agent", effort: "high" }, "observed")).toMatchObject({
+      model: null,
+      effort: null,
+    });
   });
 
   it("requires a model when an effort is given", () => {
@@ -141,7 +162,7 @@ describe("createTask / updateTask", () => {
       title: "t",
       assignee: "agent",
       harness: "pi",
-      model: "gpt-5.6-luna",
+      model: "grok-4.6",
       effort: "high",
     });
     expect(() => updateTask(task, { effort: "max" })).toThrow(TaskValidationError);
@@ -174,6 +195,36 @@ describe("claimTask", () => {
     expect(claimed.effort).toBe("xhigh");
   });
 
+  it("records the pane's observed model, normalised, over the stored one", () => {
+    const task = createTask({ title: "t", status: "ready" });
+    const claimed = claimTask(task, {
+      paneId: "wR:p1",
+      agentName: "pi",
+      harness: "pi",
+      model: "opencode-go/deepseek-v4.1-flash",
+      effort: "high",
+    });
+    expect(claimed.model).toBe("deepseek-v4.1-flash");
+    expect(claimed.effort).toBe("high");
+  });
+
+  it("records an observed model the registry does not know", () => {
+    const claimed = claimTask(createTask({ title: "t", status: "ready" }), {
+      paneId: "wR:p1",
+      harness: "cursor",
+      model: "grok-4.7",
+      effort: "high",
+    });
+    expect(claimed.model).toBe("grok-4.7");
+  });
+
+  it("drops an effort that belonged to a different stored model", () => {
+    const task = createTask({ title: "t", status: "ready", assignee: "agent", model: "gpt-5.6-luna", effort: "max" });
+    const claimed = claimTask(task, { paneId: "wR:p1", harness: "pi", model: "deepseek-v4.1-flash" });
+    expect(claimed.model).toBe("deepseek-v4.1-flash");
+    expect(claimed.effort).toBeNull();
+  });
+
   it("records the agy harness when claimed from an agy pane", () => {
     const task = createTask({ title: "t", status: "ready" });
     const claimed = claimTask(task, { paneId: "wA:p1", agentName: "agy", harness: "agy" });
@@ -184,6 +235,22 @@ describe("claimTask", () => {
   it("is idempotent for the same pane", () => {
     const task = claimTask(createTask({ title: "t" }), { paneId: "wR:p1" });
     expect(claimTask(task, { paneId: "wR:p1" })).toBe(task);
+  });
+
+  it("backfills the observed model on a repeat same-pane claim", () => {
+    const task = claimTask(createTask({ title: "t" }), { paneId: "wR:p1", agentName: "pi", harness: "pi" });
+    expect(task.model).toBeNull();
+    const refreshed = claimTask(task, {
+      paneId: "wR:p1",
+      agentName: "pi",
+      harness: "pi",
+      model: "deepseek-v4.1-flash",
+      effort: "high",
+    });
+    expect(refreshed.model).toBe("deepseek-v4.1-flash");
+    expect(refreshed.effort).toBe("high");
+    expect(refreshed.claimedAt).toEqual(task.claimedAt);
+    expect(refreshed.status).toBe("in_progress");
   });
 
   it("rejects a second pane", () => {

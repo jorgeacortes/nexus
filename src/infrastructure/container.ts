@@ -40,7 +40,7 @@ export const agentPrompt: AgentPromptPort = {
   prompt: (paneId, text) => herdrClient.prompt(paneId, text),
 };
 
-/** Adapts the Herdr snapshot to the read-only live-agent port dispatch uses. */
+/** Adapts the Herdr snapshot to the read-only live-agent port dispatch/claim use. */
 export const liveAgents: LiveAgentPort = {
   list: async () =>
     (await herdrClient.snapshot()).agents.map((agent) => ({
@@ -48,5 +48,7 @@ export const liveAgents: LiveAgentPort = {
       agentKind: agent.agent,
       status: agent.agentStatus,
       cwd: agent.cwd,
+      model: agent.model,
+      effort: agent.effort,
     })),
 };

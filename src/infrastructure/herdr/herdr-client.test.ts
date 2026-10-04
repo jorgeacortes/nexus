@@ -35,8 +35,9 @@ describe("parseSnapshot", () => {
       tabLabel: "1",
       cwd: "/home/sandbox/ws/nexus",
       terminalTitle: "task review",
-      model: "Claude/Sonnet 5.5",
+      model: "claude-sonnet-5-5",
       effort: null,
+      session: null,
       topic: "reviewing the board",
       focused: true,
     });
@@ -63,6 +64,31 @@ describe("parseSnapshot", () => {
     });
     expect(snapshot.agents[0].effort).toBe("high");
     expect(snapshot.agents[1].effort).toBe("xhigh");
+  });
+
+  it("parses the harness agent_session descriptor", () => {
+    const snapshot = parseSnapshot({
+      agents: [
+        {
+          agent: "pi",
+          pane_id: "wR:p1",
+          agent_session: {
+            agent: "pi",
+            kind: "path",
+            source: "herdr:pi",
+            value: "/home/sandbox/.pi/agent/sessions/--ws--/session.jsonl",
+          },
+        },
+        { agent: "cursor", pane_id: "wP:p4" },
+      ],
+    });
+    expect(snapshot.agents[0].session).toEqual({
+      agent: "pi",
+      kind: "path",
+      source: "herdr:pi",
+      value: "/home/sandbox/.pi/agent/sessions/--ws--/session.jsonl",
+    });
+    expect(snapshot.agents[1].session).toBeNull();
   });
 
   it("returns empty sections for a missing snapshot", () => {
