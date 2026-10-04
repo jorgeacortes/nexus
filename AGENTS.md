@@ -55,6 +55,7 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 - TypeScript strict mode; no `any`.
 - Biome: double quotes, semicolons, two-space indentation, sorted imports.
 - Run `pnpm validate` after making changes — it is the gate for every change.
+- Deployment is Docker Compose only (`Dockerfile` + `docker-compose.yml` + `docker-entrypoint.sh`, modeled on the CRM webapp). See `PLAN.md` Phase 5.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

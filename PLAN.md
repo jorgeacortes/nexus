@@ -19,6 +19,7 @@ This is the single source of truth for the project's product decisions and imple
 - **No scalability scaffolding** (pagination, caching layers, role models) unless a real need appears.
 - **Local-first data:** SQLite file in `./data/nexus.db`; Herdr state stays on-machine via its socket API.
 - **Operator is the developer:** simplicity and low ceremony beat configurability; hand-maintained lists are acceptable.
+- **Docker Compose is the only deployment path.** Production runs via `docker compose up` with a multi-stage Dockerfile and the SQLite directory bind-mounted from the host; bare `next start` on the host is not a supported deployment.
 
 ## Approved decisions
 
@@ -99,6 +100,19 @@ Project (folder + optional Herdr workspace; the tag)
 1. `needs_human` flag: manual, or auto-suggested when the linked Herdr agent reports `blocked`
 2. Inbox view of tasks awaiting human action (plus the no-project triage inbox)
 3. Resolve/unblock actions send an `agent.prompt` back through the Herdr socket API (terminal harnesses only; Cursor tasks are resolved by hand)
+
+### Phase 5 — Docker Compose deployment (required before handoff is accepted)
+
+Model on the CRM webapp (`~/ws/biznagatec-crm/webapp/Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`), simplified to one service:
+
+1. **Dockerfile** — multi-stage (`deps` → `builder` → `runner`) on `node:24-bookworm-slim`:
+   - `deps` stage needs `python3 make g++` for the `better-sqlite3` native build; pnpm via corepack, frozen lockfile
+   - `builder`: `pnpm build`; keep `data/` dockerignored (host bind mount); ensure the data dir exists at build (the DB module opens the file when Next collects page data)
+   - `runner`: full tree (not standalone) is fine for a single webapp; `PORT=3100`, `HOSTNAME=0.0.0.0`
+2. **docker-entrypoint.sh** — remap the `node` user to `PUID`/`PGID` (host uid/gid) via gosu so WAL/SHM sidecar files stay host-writable, same as CRM
+3. **docker-compose.yml** — single `nexus` service: image, `./data` bind mount (production DB stays separate from `./data-dev`), host port 3100, `PUID`/`PGID` passthrough; migration step (drizzle `migrate`) runs once before the server starts
+4. **Verification:** `docker compose up` serves the board on http://localhost:3100 with SQLite persisted across container recreation; `docker compose down && up` keeps data
+5. `docker compose` is also how the app reaches the Herdr socket — mount `~/.herdr` read-only into the container and point `HERDR_SOCKET` at it (verify socket path inside container)
 
 ## Herdr API notes (verified live)
 
