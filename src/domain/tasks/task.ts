@@ -19,6 +19,19 @@ export const HARNESS_LABELS: Record<Harness, string> = {
   cursor: "Cursor",
 };
 
+/**
+ * Maps a Herdr agent kind to a Nexus harness. Herdr reports more kinds than the
+ * registry knows (`codex`, `gemini`, `aider`, `opencode`); those stay unlinked
+ * and are carried by `agentName` alone.
+ */
+export function harnessFromAgentKind(kind: string): Harness | null {
+  const normalized = kind.trim().toLowerCase();
+  if (normalized === "pi") return "pi";
+  if (normalized === "claude" || normalized === "claude_code" || normalized === "claude-code") return "claude_code";
+  if (normalized === "cursor") return "cursor";
+  return null;
+}
+
 export const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORT_LEVELS)[number];
 
@@ -116,6 +129,12 @@ export type Task = {
   description: string | null;
   status: TaskStatus;
   assignee: AssigneeType | null;
+  /**
+   * The live Herdr agent kind behind the task (`pi`, `claude_code`, `cursor`, or
+   * a kind Nexus does not map yet — `codex`, `aider`). Written only by the pane
+   * identity resolver from a live snapshot: never a Herdr tab/pane id, never
+   * free text. Null when the pane is not a live agent.
+   */
   agentName: string | null;
   harness: Harness | null;
   model: string | null;
@@ -188,6 +207,22 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
   return trimmed === "" ? null : trimmed;
 }
 
+/** Herdr ids look like `wR:t2` / `wR:p1` — never an agent kind. */
+const HERDR_ID_PATTERN = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
+
+/**
+ * `agentName` carries an agent kind, so a Herdr pane/tab id is rejected here —
+ * the exact value the tab-id fallback used to leak into this column.
+ */
+function normalizeAgentName(value: string | null | undefined): string | null {
+  const name = normalizeOptionalText(value);
+  if (name === null) return null;
+  if (HERDR_ID_PATTERN.test(name)) {
+    throw new TaskValidationError(`"${name}" is a Herdr pane/tab id, not an agent kind.`);
+  }
+  return name;
+}
+
 const EMPTY_ASSIGNMENT: TaskAssignment = {
   assignee: null,
   agentName: null,
@@ -231,7 +266,7 @@ export function normalizeAssignment(input: {
 
   return {
     assignee,
-    agentName: input.agentName ?? null,
+    agentName: normalizeAgentName(input.agentName),
     harness,
     model,
     effort,
@@ -293,7 +328,7 @@ export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
 
   const assignment = normalizeAssignment({
     assignee: "agent",
-    agentName: normalizeOptionalText(input.agentName) ?? task.agentName,
+    agentName: normalizeAgentName(input.agentName) ?? task.agentName,
     harness: input.harness !== undefined ? input.harness : task.harness,
     model: task.model,
     effort: task.effort,

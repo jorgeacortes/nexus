@@ -329,10 +329,7 @@ async function claimCommand(argv: string[]): Promise<void> {
   const task = resolveTask(positionals[0], await listTasks());
   const claimed = await request<Task>(`/api/tasks/${task.id}/claim`, {
     method: "POST",
-    body: {
-      paneId: envValue("HERDR_PANE_ID"),
-      agentName: envValue("HERDR_AGENT") ?? envValue("HERDR_TAB_ID"),
-    },
+    body: { paneId: envValue("HERDR_PANE_ID") },
   });
   output(flags, claimed, () =>
     console.log(`Claimed #${shortId(claimed.id)} ${claimed.title} — pane ${orDash(claimed.herdrPaneId)}`),

@@ -6,6 +6,7 @@ import {
   createTask,
   effortsForModel,
   HARNESSES,
+  harnessFromAgentKind,
   isValidEffort,
   KNOWN_MODELS,
   normalizeAssignment,
@@ -39,6 +40,19 @@ describe("effort validation", () => {
   });
 });
 
+describe("harnessFromAgentKind", () => {
+  it("maps the kinds Herdr reports", () => {
+    expect(harnessFromAgentKind("pi")).toBe("pi");
+    expect(harnessFromAgentKind("claude")).toBe("claude_code");
+    expect(harnessFromAgentKind("claude-code")).toBe("claude_code");
+    expect(harnessFromAgentKind(" Cursor ")).toBe("cursor");
+  });
+
+  it("leaves a kind the registry does not know unlinked", () => {
+    expect(harnessFromAgentKind("codex")).toBeNull();
+  });
+});
+
 describe("normalizeAssignment", () => {
   it("clears agent fields when the assignee is not an agent", () => {
     expect(normalizeAssignment({ assignee: "me", harness: "pi", model: "gpt-5.6-luna", effort: "high" })).toEqual({
@@ -65,6 +79,15 @@ describe("normalizeAssignment", () => {
 
   it("requires a model when an effort is given", () => {
     expect(() => normalizeAssignment({ assignee: "agent", effort: "high" })).toThrow(/requires a model/);
+  });
+
+  it("keeps an unknown agent kind as the agent name", () => {
+    expect(normalizeAssignment({ assignee: "agent", agentName: "codex" }).agentName).toBe("codex");
+  });
+
+  it("rejects a Herdr pane/tab id as the agent name", () => {
+    expect(() => normalizeAssignment({ assignee: "agent", agentName: "wR:t2" })).toThrow(/pane\/tab id/);
+    expect(() => normalizeAssignment({ assignee: "agent", agentName: "wR:p1" })).toThrow(TaskValidationError);
   });
 });
 

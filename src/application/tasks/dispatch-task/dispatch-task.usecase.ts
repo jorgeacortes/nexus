@@ -1,9 +1,9 @@
 import { AgentUnreachableError, NoEligibleAgentError, TaskNotFoundError } from "@/application/tasks/errors";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import { buildDispatchPrompt } from "@/domain/tasks/dispatch-prompt";
-import type { LiveAgentInfo, LiveAgentPort } from "@/domain/tasks/live-agents";
+import { agentIdentityForPane, type LiveAgentInfo, type LiveAgentPort } from "@/domain/tasks/live-agents";
 import type { ProjectReferencePort } from "@/domain/tasks/project-reference";
-import { type Task, TaskValidationError } from "@/domain/tasks/task";
+import { isKnownModelForHarness, type Task, TaskValidationError } from "@/domain/tasks/task";
 import type { TaskRepository } from "@/domain/tasks/task.repository";
 
 export type DispatchTaskInput = {
@@ -48,7 +48,6 @@ export class DispatchTaskUseCase {
       throw new TaskValidationError('Pass a pane id or target "auto" to dispatch.');
     }
 
-    const target = agents.find((agent) => agent.paneId === paneId) ?? null;
     const project = task.projectId ? await this.projects.find(task.projectId) : null;
     try {
       await this.agent.prompt(paneId, buildDispatchPrompt(task, project));
@@ -56,9 +55,19 @@ export class DispatchTaskUseCase {
       throw new AgentUnreachableError(paneId, error);
     }
 
+    // The agent is the live pane: resolve its kind/harness from the same snapshot
+    // the board reads. A pane Herdr does not report clears the pointers instead of
+    // keeping a stale name. A model belongs to the harness it was chosen for, so a
+    // harness that cannot run the recorded model drops the (model, effort) pair.
+    const identity = agentIdentityForPane(agents, paneId);
+    const keepsModel = !identity.harness || !task.model || isKnownModelForHarness(identity.harness, task.model);
+
     return this.tasks.update(id, {
       assignee: "agent",
-      agentName: target?.agentKind ?? task.agentName,
+      agentName: identity.agentName,
+      harness: identity.harness,
+      model: keepsModel ? task.model : null,
+      effort: keepsModel ? task.effort : null,
       herdrPaneId: paneId,
     });
   }

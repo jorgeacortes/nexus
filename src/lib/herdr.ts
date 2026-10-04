@@ -1,4 +1,4 @@
-import type { Harness } from "@/domain/tasks/task";
+import { type Harness, harnessFromAgentKind } from "@/domain/tasks/task";
 import type { HerdrAgentStatus, HerdrSnapshot } from "@/infrastructure/herdr/herdr-client";
 
 export type LiveAgentStatus = HerdrAgentStatus;
@@ -37,15 +37,6 @@ export type LiveAgentsPayload = {
 };
 
 export const EMPTY_LIVE_AGENTS: LiveAgentsPayload = { available: false, error: null, agents: [], workspaces: [] };
-
-/** Maps a Herdr agent kind to a Nexus harness. Unknown kinds stay unlinked. */
-export function harnessFromAgentKind(kind: string): Harness | null {
-  const normalized = kind.trim().toLowerCase();
-  if (normalized === "pi") return "pi";
-  if (normalized === "claude" || normalized === "claude_code" || normalized === "claude-code") return "claude_code";
-  if (normalized === "cursor") return "cursor";
-  return null;
-}
 
 export function toLiveAgents(snapshot: HerdrSnapshot): LiveAgentsPayload {
   return {
