@@ -74,6 +74,24 @@ describe("DrizzleTaskRepository", () => {
       /not valid/,
     );
   });
+
+  it("persists claim and completion transitions", async () => {
+    const saved = await repo.save({ title: "flow" });
+    const claimed = await repo.claim(saved.id, { paneId: "wR:p1", agentName: "pi" });
+    expect(claimed.status).toBe("in_progress");
+    expect(claimed.claimedAt).toBeInstanceOf(Date);
+
+    const reread = await repo.findById(saved.id);
+    expect(reread?.herdrPaneId).toBe("wR:p1");
+    expect(reread?.claimedAt).toBeInstanceOf(Date);
+
+    await expect(repo.claim(saved.id, { paneId: "wP:p4" })).rejects.toThrow(/already claimed/);
+
+    const done = await repo.complete(saved.id, { notes: "PR #7" });
+    expect(done.status).toBe("done");
+    expect(done.completedAt).toBeInstanceOf(Date);
+    expect(done.completionNotes).toBe("PR #7");
+  });
 });
 
 describe("DrizzleProjectRepository", () => {

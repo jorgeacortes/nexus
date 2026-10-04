@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { dndRef } from "@/lib/dnd";
 import type { TaskDto } from "@/lib/dto";
 import { AGENT_STATUS_DOT, AGENT_STATUS_LABELS, type LiveAgent } from "@/lib/herdr";
+import { relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 import { AssigneeChip } from "./assignee-chip";
@@ -68,6 +69,9 @@ export function TaskCard({
           </span>
         ) : task.herdrPaneId ? (
           <span className="text-[11px] text-muted-foreground/70">pane offline</span>
+        ) : null}
+        {task.claimedAt ? (
+          <span className="text-[11px] text-muted-foreground/70">claimed {relativeTime(task.claimedAt)}</span>
         ) : null}
       </div>
     </button>

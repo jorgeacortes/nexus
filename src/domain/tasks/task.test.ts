@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  claimTask,
+  completeTask,
   createTask,
   effortsForModel,
   HARNESSES,
   isValidEffort,
   KNOWN_MODELS,
   normalizeAssignment,
+  TaskAlreadyClaimedError,
+  TaskTransitionError,
   TaskValidationError,
   updateTask,
 } from "@/domain/tasks/task";
@@ -93,5 +97,69 @@ describe("createTask / updateTask", () => {
     });
     expect(() => updateTask(task, { effort: "max" })).toThrow(TaskValidationError);
     expect(updateTask(task, { effort: "xhigh" }).effort).toBe("xhigh");
+  });
+
+  it("starts with empty claim/completion fields", () => {
+    const task = createTask({ title: "t" });
+    expect(task.claimedAt).toBeNull();
+    expect(task.completedAt).toBeNull();
+    expect(task.completionNotes).toBeNull();
+  });
+});
+
+describe("claimTask", () => {
+  it("claims a ready task for a pane and stamps the claim", () => {
+    const task = createTask({ title: "t", status: "ready" });
+    const claimed = claimTask(task, { paneId: "wR:p1", agentName: "pi", harness: "pi" });
+    expect(claimed.status).toBe("in_progress");
+    expect(claimed.assignee).toBe("agent");
+    expect(claimed.harness).toBe("pi");
+    expect(claimed.herdrPaneId).toBe("wR:p1");
+    expect(claimed.claimedAt).toBeInstanceOf(Date);
+  });
+
+  it("keeps a pre-recorded model/effort pair when claiming", () => {
+    const task = createTask({ title: "t", assignee: "agent", model: "gpt-5.6-luna", effort: "xhigh" });
+    const claimed = claimTask(task, { paneId: "wR:p1" });
+    expect(claimed.model).toBe("gpt-5.6-luna");
+    expect(claimed.effort).toBe("xhigh");
+  });
+
+  it("is idempotent for the same pane", () => {
+    const task = claimTask(createTask({ title: "t" }), { paneId: "wR:p1" });
+    expect(claimTask(task, { paneId: "wR:p1" })).toBe(task);
+  });
+
+  it("rejects a second pane", () => {
+    const task = claimTask(createTask({ title: "t" }), { paneId: "wR:p1" });
+    expect(() => claimTask(task, { paneId: "wP:p4" })).toThrow(TaskAlreadyClaimedError);
+  });
+
+  it("rejects claiming a done task", () => {
+    const task = completeTask(claimTask(createTask({ title: "t" }), { paneId: "wR:p1" }));
+    expect(() => claimTask(task, { paneId: "wR:p1" })).toThrow(TaskTransitionError);
+  });
+});
+
+describe("completeTask", () => {
+  it("completes an in-progress task and records notes", () => {
+    const claimed = claimTask(createTask({ title: "t", needsHuman: true, needsHumanReason: "x" }), {
+      paneId: "wR:p1",
+    });
+    const done = completeTask(claimed, { notes: "commit abc123" });
+    expect(done.status).toBe("done");
+    expect(done.needsHuman).toBe(false);
+    expect(done.needsHumanReason).toBeNull();
+    expect(done.completedAt).toBeInstanceOf(Date);
+    expect(done.completionNotes).toBe("commit abc123");
+  });
+
+  it("force-closes a blocked task", () => {
+    const blocked = updateTask(createTask({ title: "t" }), { status: "blocked" });
+    expect(completeTask(blocked).status).toBe("done");
+  });
+
+  it("rejects completing a ready task", () => {
+    expect(() => completeTask(createTask({ title: "t", status: "ready" }))).toThrow(TaskTransitionError);
   });
 });

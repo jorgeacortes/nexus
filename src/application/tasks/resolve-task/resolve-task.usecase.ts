@@ -1,4 +1,4 @@
-import { TaskNotFoundError } from "@/application/tasks/errors";
+import { AgentUnreachableError, TaskNotFoundError } from "@/application/tasks/errors";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import type { Harness, Task } from "@/domain/tasks/task";
 import type { TaskRepository } from "@/domain/tasks/task.repository";
@@ -8,13 +8,6 @@ export const DEFAULT_UNBLOCK_PROMPT =
 
 /** Harnesses Nexus can talk to over the Herdr socket; Cursor is resolved by hand. */
 const PROMPTABLE_HARNESSES: readonly Harness[] = ["pi", "claude_code"];
-
-export class AgentUnreachableError extends Error {
-  constructor(paneId: string, cause: unknown) {
-    super(`Could not reach the agent on pane ${paneId}: ${cause instanceof Error ? cause.message : "unknown error"}`);
-    this.name = "AgentUnreachableError";
-  }
-}
 
 /**
  * Resolves a task awaiting human action: for terminal harnesses with a linked

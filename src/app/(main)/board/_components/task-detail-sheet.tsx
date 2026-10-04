@@ -15,6 +15,7 @@ import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
 import type { LiveAgent } from "@/lib/herdr";
+import { relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 import { AssignmentFields, type AssignmentValue } from "./assignment-fields";
@@ -170,6 +171,22 @@ export function TaskDetailSheet({
             <p className="text-xs text-muted-foreground">
               Linked Herdr pane: <span className="font-mono">{task.herdrPaneId}</span>
             </p>
+          ) : null}
+
+          {task?.claimedAt || task?.completedAt ? (
+            <p className="text-xs text-muted-foreground">
+              {task.claimedAt ? <>Claimed {relativeTime(task.claimedAt)}</> : null}
+              {task.completedAt ? (
+                <>
+                  {task.claimedAt ? " · " : ""}
+                  Completed {relativeTime(task.completedAt)}
+                </>
+              ) : null}
+            </p>
+          ) : null}
+
+          {task?.completionNotes ? (
+            <p className="text-xs text-muted-foreground">Notes: {task.completionNotes}</p>
           ) : null}
 
           <Separator />

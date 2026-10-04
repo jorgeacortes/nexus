@@ -56,6 +56,22 @@ export class TaskValidationError extends Error {
   }
 }
 
+/** Raised when a second pane tries to claim a task another pane already holds. */
+export class TaskAlreadyClaimedError extends Error {
+  constructor(id: string, paneId: string | null = null) {
+    super(paneId ? `Task ${id} is already claimed by pane ${paneId}.` : `Task ${id} is already claimed.`);
+    this.name = "TaskAlreadyClaimedError";
+  }
+}
+
+/** Raised when a claim/complete is attempted from a status that forbids it. */
+export class TaskTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TaskTransitionError";
+  }
+}
+
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
 }
@@ -107,6 +123,9 @@ export type Task = {
   herdrPaneId: string | null;
   needsHuman: boolean;
   needsHumanReason: string | null;
+  claimedAt: Date | null;
+  completedAt: Date | null;
+  completionNotes: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -143,6 +162,31 @@ export type UpdateTaskInput = {
   needsHuman?: boolean;
   needsHumanReason?: string | null;
 };
+
+/** Statuses a task can be claimed from. */
+export const CLAIMABLE_STATUSES: readonly TaskStatus[] = ["backlog", "ready"];
+
+/** Statuses a task can be completed from; `blocked` force-closes it. */
+export const COMPLETABLE_STATUSES: readonly TaskStatus[] = ["in_progress", "blocked"];
+
+export type ClaimTaskInput = {
+  paneId?: string | null;
+  agentName?: string | null;
+  harness?: Harness | null;
+};
+
+export type CompleteTaskInput = { notes?: string | null };
+
+/** Short, human-friendly handle for a task id (`#a1b2c3d4`). */
+export function shortTaskId(id: string): string {
+  return id.slice(0, 8);
+}
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
 
 const EMPTY_ASSIGNMENT: TaskAssignment = {
   assignee: null,
@@ -219,7 +263,71 @@ export function createTask(input: CreateTaskInput): Task {
     ...normalizeAssignment(input),
     needsHuman: input.needsHuman ?? false,
     needsHumanReason: input.needsHuman ? (input.needsHumanReason ?? null) : null,
+    claimedAt: null,
+    completedAt: null,
+    completionNotes: null,
     createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Claims a task for an agent pane: `backlog`/`ready` → `in_progress`. A claim
+ * from the same pane that already holds the task is idempotent (returns the task
+ * unchanged); a claim from any other pane is rejected. Existing model/effort and
+ * a pre-recorded pane are preserved.
+ */
+export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
+  const now = new Date();
+  const paneId = normalizeOptionalText(input.paneId);
+
+  if (task.status === "in_progress") {
+    if (paneId !== null && task.herdrPaneId === paneId) {
+      return task;
+    }
+    throw new TaskAlreadyClaimedError(task.id, task.herdrPaneId);
+  }
+  if (!CLAIMABLE_STATUSES.includes(task.status)) {
+    throw new TaskTransitionError(`A task in "${task.status}" cannot be claimed.`);
+  }
+
+  const assignment = normalizeAssignment({
+    assignee: "agent",
+    agentName: normalizeOptionalText(input.agentName) ?? task.agentName,
+    harness: input.harness !== undefined ? input.harness : task.harness,
+    model: task.model,
+    effort: task.effort,
+    herdrPaneId: paneId ?? task.herdrPaneId,
+  });
+
+  return {
+    ...task,
+    status: "in_progress",
+    ...assignment,
+    claimedAt: now,
+    completedAt: null,
+    completionNotes: null,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Completes a task: `in_progress` (or `blocked`, force-closing it) → `done`.
+ * Clears the needs-human flag, stamps `completedAt`, and keeps the notes passed in.
+ */
+export function completeTask(task: Task, input: CompleteTaskInput = {}): Task {
+  const now = new Date();
+  if (!COMPLETABLE_STATUSES.includes(task.status)) {
+    throw new TaskTransitionError(`A task in "${task.status}" cannot be completed.`);
+  }
+
+  return {
+    ...task,
+    status: "done",
+    needsHuman: false,
+    needsHumanReason: null,
+    completedAt: now,
+    completionNotes: normalizeOptionalText(input.notes) ?? task.completionNotes,
     updatedAt: now,
   };
 }

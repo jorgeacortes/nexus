@@ -2,7 +2,11 @@ import { desc, eq } from "drizzle-orm";
 
 import {
   type AssigneeType,
+  type ClaimTaskInput,
+  type CompleteTaskInput,
   type CreateTaskInput,
+  claimTask,
+  completeTask,
   createTask,
   type Harness,
   isAssigneeType,
@@ -46,6 +50,9 @@ function toDomain(row: TaskRow): Task {
     herdrPaneId: row.herdrPaneId,
     needsHuman: row.needsHuman,
     needsHumanReason: row.needsHumanReason,
+    claimedAt: row.claimedAt ? new Date(row.claimedAt) : null,
+    completedAt: row.completedAt ? new Date(row.completedAt) : null,
+    completionNotes: row.completionNotes,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
   };
@@ -66,6 +73,9 @@ function toRow(task: Task) {
     herdrPaneId: task.herdrPaneId,
     needsHuman: task.needsHuman,
     needsHumanReason: task.needsHumanReason,
+    claimedAt: task.claimedAt?.toISOString() ?? null,
+    completedAt: task.completedAt?.toISOString() ?? null,
+    completionNotes: task.completionNotes,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
   };
@@ -112,6 +122,28 @@ export class DrizzleTaskRepository implements TaskRepository {
     const updated = updateTask(existing, input);
     this.db.update(tasks).set(toRow(updated)).where(eq(tasks.id, id)).run();
     return updated;
+  }
+
+  async claim(id: string, input: ClaimTaskInput): Promise<Task> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Task ${id} not found`);
+    }
+    const claimed = claimTask(existing, input);
+    if (claimed !== existing) {
+      this.db.update(tasks).set(toRow(claimed)).where(eq(tasks.id, id)).run();
+    }
+    return claimed;
+  }
+
+  async complete(id: string, input: CompleteTaskInput): Promise<Task> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Task ${id} not found`);
+    }
+    const completed = completeTask(existing, input);
+    this.db.update(tasks).set(toRow(completed)).where(eq(tasks.id, id)).run();
+    return completed;
   }
 
   async delete(id: string): Promise<void> {
