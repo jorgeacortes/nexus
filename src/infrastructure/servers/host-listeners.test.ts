@@ -36,10 +36,26 @@ function makeProcFixture(): string {
   writeFileSync(join(root, "uptime"), "5000.00 0.00\n");
 
   // Two processes: 4242 holds the 3210 and 8787 sockets, 4243 holds the UDP one.
-  writeProcess(root, 4242, "docker-proxy", 100_000, [111, 222]);
-  writeProcess(root, 4243, "python3", 200_000, [444]);
-  writeProcess(root, 4244, "next-server (v1", 250_000, [555], "/usr/local/bin/node");
+  writeProcess(root, 4242, "docker-proxy", 100_000, [111, 222], undefined, {
+    command:
+      "/usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 3210 -container-ip 172.19.0.2 -container-port 3100 -use-listen-fd",
+  });
+  writeProcess(root, 4243, "python3", 200_000, [444], undefined, {
+    command: "python3 -m http.server 4446 --bind 0.0.0.0",
+    cwd: "/home/sandbox/ws/biznagatec-ws/nagabot",
+    home: "/home/sandbox",
+  });
+  writeProcess(root, 4244, "next-server (v1", 250_000, [555], "/usr/local/bin/node", {
+    cgroup: "0::/../docker-6e778bb38b5e2c3767287b198fe170cde8109ba83584ddcd8fe835e898d8e059.scope",
+  });
   return root;
+}
+
+interface ProcessExtra {
+  command?: string;
+  cwd?: string;
+  home?: string;
+  cgroup?: string;
 }
 
 function writeProcess(
@@ -49,11 +65,16 @@ function writeProcess(
   startTicks: number,
   inodes: number[],
   executable?: string,
+  extra: ProcessExtra = {},
 ): void {
   const dir = join(root, String(pid));
   mkdirSync(join(dir, "fd"), { recursive: true });
   writeFileSync(join(dir, "comm"), `${comm}\n`);
   if (executable) symlinkSync(executable, join(dir, "exe"));
+  if (extra.command) writeFileSync(join(dir, "cmdline"), `${extra.command.split(" ").join("\0")}\0`);
+  if (extra.cwd) symlinkSync(extra.cwd, join(dir, "cwd"));
+  if (extra.home) writeFileSync(join(dir, "environ"), `HOME=${extra.home}\0USER=test\0`);
+  if (extra.cgroup) writeFileSync(join(dir, "cgroup"), `${extra.cgroup}\n`);
   // Fields 3..22 after the parenthesized comm; index 19 is starttime.
   const fields = Array.from({ length: 20 }, () => "0");
   fields[19] = String(startTicks);
@@ -81,13 +102,24 @@ describe("scanHostListeners", () => {
       pid: 4242,
       uid: 0,
       uptimeSeconds: 4000,
+      container: { id: null, publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 } },
     });
 
     const loopback = snapshot.listeners.find((listener) => listener.port === 8787);
     expect(loopback).toMatchObject({ address: "127.0.0.1", scope: "loopback", pid: 4242 });
 
     const udp = snapshot.listeners.find((listener) => listener.protocol === "udp");
-    expect(udp).toMatchObject({ port: 4446, address: "0.0.0.0", scope: "public", process: "python3", pid: 4243 });
+    expect(udp).toMatchObject({
+      port: 4446,
+      address: "0.0.0.0",
+      scope: "public",
+      process: "python3",
+      pid: 4243,
+      cwd: "/home/sandbox/ws/biznagatec-ws/nagabot",
+      home: "/home/sandbox",
+      command: "python3 -m http.server 4446 --bind 0.0.0.0",
+      container: null,
+    });
 
     // tcp6 table decodes to ::1 and is loopback-scoped.
     const v6 = snapshot.listeners.find((listener) => listener.protocol === "tcp6");
@@ -97,7 +129,15 @@ describe("scanHostListeners", () => {
     expect(snapshot.listeners.find((listener) => listener.port === 5555)).toMatchObject({
       process: "node",
       pid: 4244,
+      // A cgroup naming a container is Docker evidence; a host process has none.
+      container: { id: "6e778bb38b5e", publish: null },
     });
+  });
+
+  it("never attributes Docker to a plain host process", () => {
+    const snapshot = scanHostListeners({ pidRoot: makeProcFixture() });
+    const python = snapshot.listeners.find((listener) => listener.process === "python3");
+    expect(python?.container).toBeNull();
   });
 
   it("sorts by port and skips sockets that are not listening", () => {

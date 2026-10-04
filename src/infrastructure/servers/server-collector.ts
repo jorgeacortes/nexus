@@ -1,6 +1,8 @@
 import { type HostListenersSnapshot, scanHostListeners } from "@/infrastructure/servers/host-listeners";
 
 export type {
+  ContainerAttribution,
+  DockerPublish,
   HostListener,
   HostListenersSnapshot,
   ListenerProtocol,

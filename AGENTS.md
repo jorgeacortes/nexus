@@ -110,10 +110,43 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
 ## Host listeners (Servers screen)
 
 - The **Servers** screen (`src/app/(main)/servers/`) lists what is listening on the
-  host — port, protocol, bind address (loopback vs all interfaces), owning
-  process/PID/uid, and uptime — and never writes. It polls `/api/servers` every
-  5s, the same cadence as the Herdr snapshot, so a service that stops disappears
-  on the next tick.
+  host — port, protocol, bind address (loopback vs all interfaces), folder or
+  container, owning process/PID/uid, and uptime — and never writes. It polls
+  `/api/servers` every 5s, the same cadence as the Herdr snapshot, so a service
+  that stops disappears on the next tick.
+- **One row per app, not per socket.** `groupListeners` (`src/lib/servers.ts`)
+  collapses a service's TCP/UDP and per-address variants into one row that lists
+  its ports and binds and says "N sockets" — `docker-proxy` publishing the same
+  container port on two host IPs is one row, `systemd-resolved` on `127.0.0.53`
+  and `127.0.0.54` is one row. Host rows collapse by pid; a listener whose owner
+  cannot be named stays on its own row.
+- **The web-app rule, stated on the screen and here:** a listener is one of the
+  operator's apps when it is a published Docker port (container sockets are the
+  operator's by construction) or when a non-root process from the
+  `WEB_APP_RUNTIMES` allowlist in `src/lib/servers.ts` owns it (node, bun, deno,
+  python/uvicorn/gunicorn, ruby/puma, php, npm/pnpm/yarn, tsx, vite). Everything
+  else — cupsd, systemd-resolved, systemd-networkd, a root daemon — is a **host
+  service**. There is deliberately no HTTP probe: the screen polls every 5s and
+  must not become a request generator. The two groups render as sections, host
+  services are collapsed behind one control, and the control always states how
+  many rows are hidden so nothing is dropped silently. The header line answers
+  the question directly: "4 web apps · 12 listeners", plus the Docker count and
+  how many sockets are on all interfaces.
+- **Per-listener identity comes from procfs**, next to the socket match that
+  already names the owner: working directory from `/proc/<pid>/cwd`, command line
+  from `/proc/<pid>/cmdline`, and `$HOME` from `/proc/<pid>/environ` (used to
+  shorten the folder to `~/ws/…`). The app name is the folder's basename, falling
+  back to the runtime. When the folder is merely unreadable the row says so
+  ("folder not readable for this process") rather than printing a bare dash.
+- **Decision: no Docker socket is mounted.** Container *names* and *images* would
+  need `/var/run/docker.sock`, and a read-only bind of a unix socket is not
+  actually read-only — whatever holds it has root-equivalent Docker API access —
+  and it would need `group_add` for the socket GID. Procfs alone proves enough:
+  `docker-proxy`'s own argv carries `-host-port/-container-ip/-container-port`,
+  so a published row reads "Docker · published 3210 → container 172.19.0.2:3100",
+  and a container-run process's `/proc/<pid>/cgroup` names its 12-char container id
+  (`docker-<id>.scope`). We show that id when we have it and never a guessed name.
+  A host process satisfies neither test, so it can never be labelled Docker.
 - **Decision: the app reads the host's `/proc` directly; there is no sidecar
   collector.** The Compose service runs with `pid: host`, so `/proc` is the host's
   procfs and `/proc/1/net/{tcp,tcp6,udp,udp6}` is the host's network namespace
@@ -132,12 +165,12 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
   mirroring `HerdrPort`; the procfs adapter is
   `src/infrastructure/servers/host-listeners.ts`, the read use case is
   `src/application/servers/read-servers/`. Domain, application, and UI code never
-  read `/proc`.
+  read `/proc`; labels and heuristics live in `src/lib/servers.ts`.
 - A collector that cannot be read reports `available: false` with the reason and
   is never rendered as "nothing is listening"; a failed poll keeps the last
   snapshot and labels it. Rows are marked when their port is `HOST_PORT` (the
-  deployed board) or `PORT` (dev), and the list is filterable by port, process,
-  pid, or address.
+  deployed board) or `PORT` (dev), and the list is filterable by app, folder,
+  container, runtime, port, process, pid, or address.
 
 ## Branding
 

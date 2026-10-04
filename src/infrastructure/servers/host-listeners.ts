@@ -20,6 +20,42 @@ export interface HostListener {
   uid: number | null;
   /** Process uptime in seconds, or null when the pid is unknown. */
   uptimeSeconds: number | null;
+  /** Working directory of the owning process (`/proc/<pid>/cwd`); null when unreadable. */
+  cwd: string | null;
+  /** The owner's `$HOME` (`/proc/<pid>/environ`), used to shorten `cwd`; null when unreadable. */
+  home: string | null;
+  /** The owner's full command line (`/proc/<pid>/cmdline`), space-joined; null when unreadable. */
+  command: string | null;
+  /**
+   * Set only when the listener demonstrably belongs to a Docker container — a
+   * published-port `docker-proxy` owner, or an owner whose cgroup names a
+   * container. Always null for a host process, so a host process can never be
+   * labelled Docker.
+   */
+  container: ContainerAttribution | null;
+}
+
+/** The `docker-proxy` arguments for one published container port. */
+export interface DockerPublish {
+  /** Host port the container port is published on. */
+  hostPort: number;
+  /** Container-side address `docker-proxy` forwards to. */
+  containerIp: string;
+  /** Port inside the container. */
+  containerPort: number;
+}
+
+/**
+ * Evidence that a listener is a Docker container, never a host process. The
+ * container's name and image are not reachable without a Docker socket, so we
+ * carry only what procfs proves: the published mapping and the container id
+ * when a cgroup names one.
+ */
+export interface ContainerAttribution {
+  /** Container id from the owner's cgroup (`docker-<id>.scope`), when visible. */
+  id: string | null;
+  /** The published-port mapping `docker-proxy` was started with, when it is one. */
+  publish: DockerPublish | null;
 }
 
 export interface HostListenersSnapshot {
@@ -83,6 +119,7 @@ export function scanHostListeners(options: ScanHostListenersOptions = {}): HostL
   const listeners = sockets
     .map((socket) => {
       const pid = ownerByInode.get(socket.inode) ?? null;
+      const command = pid === null ? null : readProcessCommand(pidRoot, pid);
       return {
         protocol: socket.protocol,
         address: socket.address,
@@ -92,6 +129,10 @@ export function scanHostListeners(options: ScanHostListenersOptions = {}): HostL
         process: pid === null ? null : readProcessName(pidRoot, pid),
         uid: socket.uid,
         uptimeSeconds: pid === null ? null : readProcessUptime(pidRoot, pid, bootSeconds),
+        cwd: pid === null ? null : readProcessCwd(pidRoot, pid),
+        home: pid === null ? null : readProcessHome(pidRoot, pid),
+        command,
+        container: pid === null ? null : readContainer(pidRoot, pid, command),
       } satisfies HostListener;
     })
     .sort((a, b) => a.port - b.port || a.protocol.localeCompare(b.protocol) || a.address.localeCompare(b.address));
@@ -224,6 +265,89 @@ function readExecutable(pidRoot: string, pid: number): string | null {
   try {
     const target = readlinkSync(join(pidRoot, String(pid), "exe"));
     return basename(target) || null;
+  } catch {
+    return null;
+  }
+}
+
+function readProcessCwd(pidRoot: string, pid: number): string | null {
+  try {
+    const target = readlinkSync(join(pidRoot, String(pid), "cwd"));
+    return target === "" ? null : target;
+  } catch {
+    return null;
+  }
+}
+
+function readProcessCommand(pidRoot: string, pid: number): string | null {
+  try {
+    const argv = readFileSync(join(pidRoot, String(pid), "cmdline"), "utf8")
+      .split("\0")
+      .filter(Boolean);
+    return argv.length === 0 ? null : argv.join(" ");
+  } catch {
+    return null;
+  }
+}
+
+function readProcessHome(pidRoot: string, pid: number): string | null {
+  try {
+    const environ = readFileSync(join(pidRoot, String(pid), "environ"), "utf8");
+    for (const entry of environ.split("\0")) {
+      if (entry.startsWith("HOME=")) {
+        const home = entry.slice("HOME=".length);
+        return home === "" ? null : home;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Docker attribution, from two independent procfs facts: `docker-proxy` is the
+ * host-side publisher of a container port (its own argv carries the mapping),
+ * and a container-run process's cgroup names its container id. A plain host
+ * process satisfies neither, so it can never be labelled Docker.
+ */
+function readContainer(pidRoot: string, pid: number, command: string | null): ContainerAttribution | null {
+  const publish = parseDockerProxyPublish(command);
+  const id = readContainerId(pidRoot, pid);
+  if (publish === null && id === null) return null;
+  return { id, publish };
+}
+
+/**
+ * Decodes `docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 3210
+ * -container-ip 172.19.0.2 -container-port 3100 …`. Anything that is not a
+ * `docker-proxy` invocation returns null — a host process is never Docker.
+ */
+function parseDockerProxyPublish(command: string | null): DockerPublish | null {
+  if (command === null) return null;
+  const argv = command.split(" ");
+  if (basename(argv[0] ?? "") !== "docker-proxy") return null;
+  const hostPort = Number(readArg(argv, "-host-port"));
+  const containerPort = Number(readArg(argv, "-container-port"));
+  const containerIp = readArg(argv, "-container-ip");
+  if (!Number.isInteger(hostPort) || !Number.isInteger(containerPort) || containerIp === null) return null;
+  return { hostPort, containerIp, containerPort };
+}
+
+function readArg(argv: string[], flag: string): string | null {
+  const index = argv.indexOf(flag);
+  return index >= 0 ? (argv[index + 1] ?? null) : null;
+}
+
+/** `0::/../docker-<64 hex>.scope` → the 12-char short id; host processes have neither. */
+function readContainerId(pidRoot: string, pid: number): string | null {
+  try {
+    const cgroup = readFileSync(join(pidRoot, String(pid), "cgroup"), "utf8");
+    for (const line of cgroup.split("\n")) {
+      const match = /(?:^|\/)docker-([0-9a-f]{12,64})\.scope$/.exec(line.trim());
+      if (match?.[1]) return match[1].slice(0, 12);
+    }
+    return null;
   } catch {
     return null;
   }

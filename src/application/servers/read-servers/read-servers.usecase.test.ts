@@ -19,6 +19,10 @@ function listener(port: number) {
     pid: 42,
     uid: 1000,
     uptimeSeconds: 120,
+    cwd: "/home/sandbox/ws/nagabot",
+    home: "/home/sandbox",
+    command: "node server.js",
+    container: null,
   };
 }
 
