@@ -58,6 +58,17 @@ prefix. Agents read their own identity from `$HERDR_PANE_ID` — it is never typ
 `nx done --notes` is stored on the task (`tasks.completion_notes`) and shown in
 the card's detail panel next to the claim/completion timestamps.
 
+### Agent skill
+
+The convention agents follow is packaged as a skill at `skills/nx-tasks/SKILL.md`.
+Install it for every harness on the machine — pi and Cursor read
+`~/.agents/skills` natively, Claude Code needs the link:
+
+```bash
+ln -sfn ~/ws/biznagatec-ws/nexus/skills/nx-tasks ~/.agents/skills/nx-tasks
+~/.agents/link.sh
+```
+
 ### `nx board` — the live join
 
 `nx board` renders tasks (SQLite, via the API) next to the live Herdr agents:
