@@ -18,6 +18,8 @@
  * `--json` is accepted everywhere for scripting.
  */
 
+import fs from "node:fs";
+
 import { buildBoardRows, renderBoard } from "./board";
 import {
   type BoardTarget,
@@ -38,9 +40,9 @@ const TASK_PRIORITIES = ["blocker", "high", "normal", "low", "someday"];
 const PRIORITY_ORDER: Record<string, number> = { blocker: 0, high: 1, normal: 2, low: 3, someday: 4 };
 
 /** Raised for every expected failure: printed as `nx: <message>`, never a stack trace. */
-class CliError extends Error {}
+export class CliError extends Error {}
 
-type ParsedArgs = { positionals: string[]; flags: Map<string, string | true> };
+export type ParsedArgs = { positionals: string[]; flags: Map<string, string | true> };
 
 /** Resolved once per process: every command in one invocation talks to one board. */
 let resolvedBoard: Promise<BoardTarget> | null = null;
@@ -85,7 +87,7 @@ function envValue(name: string): string | null {
 const BOOLEAN_FLAGS = new Set(["json", "force"]);
 
 /** Parses `--key value`, `--key=value`, and `--flag`; `--watch` keeps a bare numeric value. */
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags = new Map<string, string | true>();
   for (let index = 0; index < argv.length; index += 1) {
@@ -109,6 +111,25 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
   }
   return { positionals, flags };
+}
+
+export function parseDescription(rawDesc: string | null): string | null | undefined {
+  if (rawDesc === null) return undefined;
+  let description: string;
+  if (rawDesc === "@-") {
+    description = fs.readFileSync(0, "utf-8");
+  } else if (rawDesc.startsWith("@")) {
+    try {
+      description = fs.readFileSync(rawDesc.slice(1), "utf-8");
+    } catch (err) {
+      throw new CliError(
+        `cannot read description file ${rawDesc.slice(1)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  } else {
+    description = rawDesc.replace(/\\n/g, "\n");
+  }
+  return description.trim() === "" ? null : description;
 }
 
 function flagValue(flags: Map<string, string | true>, name: string): string | null {
@@ -347,7 +368,64 @@ async function taskCommand(argv: string[]): Promise<void> {
     return;
   }
 
-  throw new CliError(`Unknown task action "${action ?? ""}". Try: nx task add|list|show`);
+  if (action === "edit") {
+    const idRef = positionals[0];
+    if (!idRef) {
+      throw new CliError(
+        "Usage: nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]",
+      );
+    }
+    const title = flagValue(flags, "title");
+    const rawDesc = flagValue(flags, "description");
+    const status = flagValue(flags, "status");
+    const projectRef = flagValue(flags, "project");
+    const priority = flagValue(flags, "priority");
+
+    if (title === null && rawDesc === null && status === null && projectRef === null && priority === null) {
+      throw new CliError(
+        "nx task edit: pass at least one field to edit (--title, --description, --status, --project, --priority)",
+      );
+    }
+
+    if (status && !TASK_STATUSES.includes(status)) {
+      throw new CliError(`Unknown status "${status}". Known statuses: ${TASK_STATUSES.join(", ")}.`);
+    }
+    if (priority && !TASK_PRIORITIES.includes(priority)) {
+      throw new CliError(`Unknown priority "${priority}". Known priorities: ${TASK_PRIORITIES.join(", ")}.`);
+    }
+
+    const task = resolveTask(idRef, await listTasks());
+    const description = parseDescription(rawDesc);
+
+    let projectId: string | null | undefined;
+    if (projectRef !== null) {
+      if (projectRef === "-" || projectRef === "none" || projectRef === "") {
+        projectId = null;
+      } else {
+        projectId = resolveProject(projectRef, await listProjects()).id;
+      }
+    }
+
+    const updated = await request<Task>(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: {
+        title: title ?? undefined,
+        description: rawDesc !== null ? description : undefined,
+        status: status ?? undefined,
+        projectId,
+        priority: priority ?? undefined,
+      },
+    });
+
+    output(flags, updated, () =>
+      console.log(
+        `Updated task #${shortId(updated.id)} ${updated.title} (${updated.status}, ${updated.priority ?? "normal"})`,
+      ),
+    );
+    return;
+  }
+
+  throw new CliError(`Unknown task action "${action ?? ""}". Try: nx task add|list|show|edit`);
 }
 
 async function claimCommand(argv: string[]): Promise<void> {
@@ -556,6 +634,7 @@ function usage(): void {
   nx project add <name> [--folder <path>] [--workspace <herdr-id>]
   nx project list
   nx task add <project> "<title>" [--description <text>] [--status backlog|ready] [--priority <level>]
+  nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]
   nx task list [project] [--status <status>] [--priority <level>]
   nx task show <id>
   nx claim <id>                  claim for this Herdr pane ($HERDR_PANE_ID)

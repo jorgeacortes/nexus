@@ -31,6 +31,8 @@ unique prefix, and `--json` works on every command.
 - `nx board [--watch]` — the live join of tasks × Herdr agents (read-only).
 - `nx task add <project> "<title>" --status ready` — create work; `ready` means an
   agent can claim it, `backlog` (default) means not yet.
+- `nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]` —
+  update fields on an existing task.
 - `nx project list` / `nx project add <name> --folder <path> --workspace <id>`.
 - `nx need <id> --reason "..."` — flag that this needs the operator.
 - `nx assign <id> --to <pane-id|auto>` — push the task's prompt into a Herdr pane
