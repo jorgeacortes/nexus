@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Trash2 } from "lucide-react";
+import { CircleAlert, Trash2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
+import type { LiveAgent } from "@/lib/herdr";
 import { cn } from "@/lib/utils";
 
 import { AssignmentFields, type AssignmentValue } from "./assignment-fields";
@@ -23,12 +24,14 @@ import { COLUMN_META } from "./board-meta";
 export function TaskDetailSheet({
   task,
   projects,
+  liveAgent,
   onClose,
   onUpdated,
   onDeleted,
 }: {
   task: TaskDto | null;
   projects: ProjectDto[];
+  liveAgent?: LiveAgent;
   onClose: () => void;
   onUpdated: (task: TaskDto) => void;
   onDeleted: (id: string) => void;
@@ -97,6 +100,19 @@ export function TaskDetailSheet({
         </SheetHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          {liveAgent?.status === "blocked" && !needsHuman ? (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-300" />
+              <p className="flex-1 text-muted-foreground">
+                The linked agent on <span className="font-mono">{liveAgent.paneId}</span> reports{" "}
+                <span className="font-medium text-foreground">blocked</span>. Flag it as needing you?
+              </p>
+              <Button size="sm" variant="outline" onClick={() => setNeedsHuman(true)}>
+                Flag
+              </Button>
+            </div>
+          ) : null}
+
           <div className="space-y-1.5">
             <Label htmlFor="detail-title">Title</Label>
             <Input id="detail-title" value={title} onChange={(event) => setTitle(event.target.value)} />

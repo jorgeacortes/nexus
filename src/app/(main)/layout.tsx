@@ -1,11 +1,16 @@
 import type { ReactNode } from "react";
 
+import { taskRepo } from "@/infrastructure/container";
+
 import { AppSidebar } from "./_components/app-sidebar";
 
-export default function MainLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default async function MainLayout({ children }: Readonly<{ children: ReactNode }>) {
+  const tasks = await taskRepo.findAll();
+  const inboxCount = tasks.filter((task) => task.needsHuman).length;
+
   return (
     <div className="flex h-svh overflow-hidden bg-background text-foreground">
-      <AppSidebar />
+      <AppSidebar inboxCount={inboxCount} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
     </div>
   );

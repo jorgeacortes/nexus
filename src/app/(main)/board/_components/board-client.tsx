@@ -119,6 +119,7 @@ export function BoardClient({
           key={selected.id}
           task={selected}
           projects={initialProjects}
+          liveAgent={selected.herdrPaneId ? liveByPaneId.get(selected.herdrPaneId) : undefined}
           onClose={() => setSelectedId(null)}
           onUpdated={(updated) => setTasks((list) => list.map((task) => (task.id === updated.id ? updated : task)))}
           onDeleted={(id) => setTasks((list) => list.filter((task) => task.id !== id))}

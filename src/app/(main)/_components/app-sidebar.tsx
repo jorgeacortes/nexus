@@ -16,7 +16,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/projects", label: "Projects", hint: "Folders", icon: FolderKanban },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ inboxCount = 0 }: { inboxCount?: number }) {
   const pathname = usePathname();
 
   return (
@@ -48,9 +48,15 @@ export function AppSidebar() {
             >
               <Icon className="size-4" />
               <span className="flex-1 font-medium">{label}</span>
-              <span className="text-[11px] text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60">
-                {hint}
-              </span>
+              {href === "/inbox" && inboxCount > 0 ? (
+                <span className="rounded-full bg-amber-500/20 px-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-300">
+                  {inboxCount}
+                </span>
+              ) : (
+                <span className="text-[11px] text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60">
+                  {hint}
+                </span>
+              )}
             </Link>
           );
         })}
