@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# The `nx` command surface. Install it on PATH once:
+#
+#   ln -sf ~/ws/biznagatec-ws/nexus/scripts/nx ~/.local/bin/nx
+#
+# It only runs the HTTP client in src/cli/nx.ts, so it is safe from any cwd.
+set -euo pipefail
+exec pnpm --dir "$HOME/ws/biznagatec-ws/nexus" exec tsx src/cli/nx.ts "$@"
