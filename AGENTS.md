@@ -138,15 +138,34 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
   shorten the folder to `~/ws/…`). The app name is the folder's basename, falling
   back to the runtime. When the folder is merely unreadable the row says so
   ("folder not readable for this process") rather than printing a bare dash.
-- **Decision: no Docker socket is mounted.** Container *names* and *images* would
-  need `/var/run/docker.sock`, and a read-only bind of a unix socket is not
-  actually read-only — whatever holds it has root-equivalent Docker API access —
-  and it would need `group_add` for the socket GID. Procfs alone proves enough:
+- **Decision: container names come from a socket proxy, never from the real
+  socket.** The Docker rows show the container name and the compose identity
+  (`nagabot-web-1`, `nagabot/web`), the image, and the compose working directory
+  as the folder column. Those live in the daemon, so a
+  `tecnativa/docker-socket-proxy` service in `docker-compose.yml` holds
+  `/var/run/docker.sock:ro` with only `CONTAINERS=1` and `POST=0` enabled (the
+  image's other endpoints default off) and listens on 2375 inside the internal
+  `dockerapi` network — no published port, and only Nexus joins it. Nexus never
+  mounts the real socket: a read-only bind of a unix socket still gives the holder
+  root-equivalent Docker API access, which is why the direct mount (rejected) and
+  the `/var/lib/docker/containers` read (which also exposes container `Env`, i.e.
+  secrets) were not used. Port: `ContainerInventoryPort` in
+  `src/infrastructure/docker/container-inventory.ts`; the adapter makes one
+  `GET /containers/json` per tick and one cached `GET /containers/<id>/json` per
+  container to turn a compose-built image's bare `sha256:…` into its tag. The
+  use case joins an inventory entry onto a listener by `docker-proxy`'s
+  `-container-ip` (the container's network address), or by the cgroup container id
+  when there is no published mapping.
+- **A dead Docker proxy costs the names, never the screen.** The use case catches
+  the inventory failure, reports it in `ServersPayload.docker`, and leaves the
+  identity fields null; the UI says "container names unavailable" and keeps the
+  published mapping. No name is ever guessed.
+- **The procfs side of Docker attribution** needs no socket at all:
   `docker-proxy`'s own argv carries `-host-port/-container-ip/-container-port`,
-  so a published row reads "Docker · published 3210 → container 172.19.0.2:3100",
-  and a container-run process's `/proc/<pid>/cgroup` names its 12-char container id
-  (`docker-<id>.scope`). We show that id when we have it and never a guessed name.
-  A host process satisfies neither test, so it can never be labelled Docker.
+  so a published row still reads "Docker · published 3210 → container
+  172.19.0.2:3100" when the proxy is down, and a container-run process's
+  `/proc/<pid>/cgroup` names its 12-char container id. A host process satisfies
+  neither test, so it can never be labelled Docker.
 - **Decision: the app reads the host's `/proc` directly; there is no sidecar
   collector.** The Compose service runs with `pid: host`, so `/proc` is the host's
   procfs and `/proc/1/net/{tcp,tcp6,udp,udp6}` is the host's network namespace

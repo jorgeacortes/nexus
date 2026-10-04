@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { ServerListener } from "@/lib/servers";
+import type { ServerContainer, ServerListener } from "@/lib/servers";
 import {
+  composeLabel,
   folderDetail,
+  formatContainerFolder,
   formatFolder,
   groupListeners,
   listenerKind,
@@ -10,6 +12,19 @@ import {
   matchesGroupFilter,
   summarizeServers,
 } from "@/lib/servers";
+
+function container(overrides: Partial<ServerContainer> = {}): ServerContainer {
+  return {
+    id: null,
+    publish: null,
+    name: null,
+    image: null,
+    composeProject: null,
+    composeService: null,
+    workingDir: null,
+    ...overrides,
+  };
+}
 
 function listener(overrides: Partial<ServerListener> = {}): ServerListener {
   return {
@@ -42,7 +57,7 @@ describe("listenerKind", () => {
     const docker = listener({
       process: "docker-proxy",
       uid: 0,
-      container: { id: null, publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 } },
+      container: container({ publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 } }),
     });
     expect(listenerKind(docker)).toBe("app");
     expect(listenerName(docker)).toBe("Docker container");
@@ -50,9 +65,46 @@ describe("listenerKind", () => {
   });
 
   it("names a container by its cgroup id when there is no published mapping", () => {
-    const container = listener({ container: { id: "6e778bb38b5e", publish: null }, process: "node", pid: 30 });
-    expect(listenerName(container)).toBe("Docker container 6e778bb38b5e");
-    expect(folderDetail(container)).toBe("Docker · container 6e778bb38b5e");
+    const byCgroup = listener({ container: container({ id: "6e778bb38b5e" }), process: "node", pid: 30 });
+    expect(listenerName(byCgroup)).toBe("Docker container 6e778bb38b5e");
+    expect(folderDetail(byCgroup)).toBe("Docker · container 6e778bb38b5e");
+  });
+});
+
+describe("container identity", () => {
+  const identified = listener({
+    uid: 0,
+    process: "docker-proxy",
+    port: 8787,
+    cwd: null,
+    home: null,
+    container: container({
+      id: null,
+      publish: { hostPort: 8787, containerIp: "172.20.0.2", containerPort: 8787 },
+      name: "nagabot-web-1",
+      image: "nagabot",
+      composeProject: "nagabot",
+      composeService: "web",
+      workingDir: "/home/sandbox/ws/biznagatec-ws/nagabot",
+    }),
+  });
+
+  it("prefers the container name, then the compose identity, then the short id", () => {
+    expect(listenerName(identified)).toBe("nagabot-web-1");
+    expect(composeLabel(identified.container!)).toBe("nagabot/web");
+    const composeOnly = listener({ container: container({ composeProject: "nagabot", composeService: "web" }) });
+    expect(listenerName(composeOnly)).toBe("nagabot/web");
+  });
+
+  it("shows the compose working directory as the folder column, home-shortened", () => {
+    expect(folderDetail(identified)).toBe("~/ws/biznagatec-ws/nagabot");
+    expect(formatContainerFolder("/home/sandbox/ws/x")).toBe("~/ws/x");
+    expect(formatContainerFolder("/srv/deploy")).toBe("/srv/deploy");
+    expect(formatContainerFolder(null)).toBeNull();
+  });
+
+  it("uses the image as the runtime line", () => {
+    expect(groupListeners([identified])[0]?.runtime).toBe("nagabot");
   });
 });
 
@@ -107,21 +159,22 @@ describe("groupListeners", () => {
     const python = groupListeners([listener({ process: "python3", command: "python3 -m http.server 4446" })]);
     expect(python[0]?.runtime).toBe("python3 · http.server");
   });
+
   it("collapses docker-proxy's per-address bindings by the container port they publish", () => {
     const publish = { hostPort: 8787, containerIp: "172.20.0.2", containerPort: 8787 };
     const groups = groupListeners([
-      listener({ pid: 20, port: 8787, address: "127.0.0.1", scope: "loopback", container: { id: null, publish } }),
+      listener({ pid: 20, port: 8787, address: "127.0.0.1", scope: "loopback", container: container({ publish }) }),
       listener({
         pid: 21,
         port: 8787,
         address: "100.102.151.39",
         scope: "interface",
-        container: { id: null, publish },
+        container: container({ publish }),
       }),
       listener({
         pid: 22,
         port: 3000,
-        container: { id: null, publish: { ...publish, containerIp: "172.18.0.2", containerPort: 3000 } },
+        container: container({ publish: { ...publish, containerIp: "172.18.0.2", containerPort: 3000 } }),
       }),
     ]);
 
@@ -155,7 +208,7 @@ describe("summarizeServers", () => {
         uid: 0,
         port: 3210,
         nexusRole: "board",
-        container: { id: null, publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 } },
+        container: container({ publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 } }),
       }),
     ]);
 
@@ -173,14 +226,24 @@ describe("matchesGroupFilter", () => {
       cwd: null,
       home: null,
       command: "/usr/bin/docker-proxy -proto tcp -host-port 3210 -container-ip 172.19.0.2 -container-port 3100",
-      container: { id: "6e778bb38b5e", publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 } },
+      container: container({
+        id: "6e778bb38b5e",
+        publish: { hostPort: 3210, containerIp: "172.19.0.2", containerPort: 3100 },
+        name: "nexus-nexus-1",
+        image: "nexus:latest",
+        composeProject: "nexus",
+        composeService: "nexus",
+        workingDir: "/home/sandbox/ws/biznagatec-ws/nexus",
+      }),
     }),
   ]);
 
-  it("searches folder, container, and runtime, not just the port", () => {
+  it("searches folder, container, compose identity, and runtime, not just the port", () => {
     expect(groups.filter((group) => matchesGroupFilter(group, "nagabot"))).toHaveLength(1);
     expect(groups.filter((group) => matchesGroupFilter(group, "6e778bb38b5e"))).toHaveLength(1);
     expect(groups.filter((group) => matchesGroupFilter(group, "172.19.0.2"))).toHaveLength(1);
+    expect(groups.filter((group) => matchesGroupFilter(group, "nexus-nexus-1"))).toHaveLength(1);
+    expect(groups.filter((group) => matchesGroupFilter(group, "nexus:latest"))).toHaveLength(1);
     expect(groups.filter((group) => matchesGroupFilter(group, "3210"))).toHaveLength(1);
     expect(groups.filter((group) => matchesGroupFilter(group, "nothing"))).toHaveLength(0);
   });

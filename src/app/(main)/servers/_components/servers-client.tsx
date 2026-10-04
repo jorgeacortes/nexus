@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useServers } from "@/hooks/use-servers";
 import {
+  composeLabel,
   formatUptime,
   groupListeners,
   KIND_LABELS,
@@ -101,6 +102,19 @@ export function ServersClient({ initialServers }: { initialServers: ServersPaylo
               <p className="text-muted-foreground">
                 Showing the last snapshot{servers.collectedAt ? ` from ${relativeTime(servers.collectedAt)}` : ""}. The
                 host may have changed since.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {servers.available && !servers.docker.available && servers.listeners.some((listener) => listener.container) ? (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
+            <Container className="mt-0.5 size-4 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="font-medium">Container names unavailable</p>
+              <p className="text-muted-foreground">
+                {servers.docker.error ?? "The Docker API proxy is not answering."} Docker rows fall back to the
+                published port mapping — no name is guessed.
               </p>
             </div>
           </div>
@@ -245,6 +259,7 @@ function HiddenServices({ services, onShow }: { services: number; onShow: () => 
 
 /** Phone-sized row: the same fields the table shows, stacked instead of columnar. */
 function ServerCard({ group }: { group: ListenerGroup }) {
+  const compose = group.container ? composeLabel(group.container) : null;
   return (
     <article
       className={cn(
@@ -260,6 +275,7 @@ function ServerCard({ group }: { group: ListenerGroup }) {
             Docker
           </Badge>
         ) : null}
+        {compose ? <Badge variant="outline">{compose}</Badge> : null}
         {group.nexusRole ? <Badge variant="default">{NEXUS_ROLE_LABELS[group.nexusRole]}</Badge> : null}
         <Badge variant={group.scope === "public" ? "destructive" : "outline"} className="ml-auto">
           {SCOPE_LABELS[group.scope]}
@@ -285,6 +301,7 @@ function ServerCard({ group }: { group: ListenerGroup }) {
 }
 
 function ServerRow({ group }: { group: ListenerGroup }) {
+  const compose = group.container ? composeLabel(group.container) : null;
   return (
     <tr className={cn("border-t border-border", group.nexusRole ? "bg-primary/5" : undefined)}>
       <td className="px-3 py-2">
@@ -296,6 +313,7 @@ function ServerRow({ group }: { group: ListenerGroup }) {
               Docker
             </Badge>
           ) : null}
+          {compose ? <Badge variant="outline">{compose}</Badge> : null}
           {group.nexusRole ? <Badge variant="default">{NEXUS_ROLE_LABELS[group.nexusRole]}</Badge> : null}
         </div>
       </td>

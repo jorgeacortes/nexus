@@ -16,6 +16,11 @@
 # capabilities let the collector name the process owning a socket. Without them
 # the screen still lists ports, with the process column empty. See AGENTS.md →
 # "Host listeners".
+#
+# Container names come from `docker-socket-proxy`, not from /var/run/docker.sock:
+# a read-only bind of a unix socket still grants root-equivalent Docker access,
+# so the real socket stays in that service and only container reads are enabled.
+# Nexus reaches it over the internal `dockerapi` network; nothing is published.
 
 name: nexus
 
@@ -46,6 +51,11 @@ services:
       - ${PI_SESSIONS_DIR:-${HOME}/.pi/agent/sessions}:/harness/pi/sessions:ro
       - ${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:/harness/claude:ro
       - ${CURSOR_CONFIG_DIR:-${HOME}/.cursor}:/harness/cursor:ro
+    networks:
+      - default
+      - dockerapi
+    depends_on:
+      - docker-socket-proxy
     environment:
       - NODE_ENV=production
       - DATA_DIR=./data
@@ -56,6 +66,8 @@ services:
       - HARNESS_STATE_DIR=/harness
       # The published port, so the Servers screen can mark its own row.
       - HOST_PORT=${HOST_PORT:-3210}
+      # The container API proxy, for the Servers screen's Docker row names.
+      - DOCKER_API_URL=http://docker-socket-proxy:2375
     healthcheck:
       test:
         [
@@ -68,3 +80,26 @@ services:
       timeout: 5s
       retries: 10
       start_period: 40s
+
+  # Read-only Docker API for the Servers screen. The real socket is mounted only
+  # here, and the entrypoint's template disables every endpoint except container
+  # reads (`CONTAINERS=1`, `POST=0`), so this service cannot start, stop, exec
+  # into, or inspect the configuration of anything. It listens on 2375 inside
+  # the internal `dockerapi` network and is not published to the host.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - POST=0
+      - LOG_LEVEL=warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - dockerapi
+
+networks:
+  # Internal: no route off this network, and only Nexus and the proxy join it,
+  # so the unauthenticated proxy API is unreachable from anywhere else.
+  dockerapi:
+    internal: true

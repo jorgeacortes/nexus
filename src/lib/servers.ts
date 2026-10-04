@@ -1,7 +1,7 @@
-import type { NexusRole, ServerListener, ServersPayload } from "@/application/servers/read-servers";
-import type { ContainerAttribution, ListenerProtocol, ListenerScope } from "@/infrastructure/servers/server-collector";
+import type { NexusRole, ServerContainer, ServerListener, ServersPayload } from "@/application/servers/read-servers";
+import type { ListenerProtocol, ListenerScope } from "@/infrastructure/servers/server-collector";
 
-export type { NexusRole, ServerListener, ServersPayload };
+export type { NexusRole, ServerContainer, ServerListener, ServersPayload };
 
 /** How a Nexus-owned listener is labelled in the list. */
 export const NEXUS_ROLE_LABELS: Record<NexusRole, string> = {
@@ -76,8 +76,19 @@ export function listenerName(listener: ServerListener): string {
   return listener.uid === null ? "unknown" : `uid ${listener.uid}`;
 }
 
-function containerName(container: ContainerAttribution): string {
+function containerName(container: ServerContainer): string {
+  if (container.name) return container.name;
+  const compose = composeLabel(container);
+  if (compose) return compose;
   return container.id === null ? "Docker container" : `Docker container ${container.id}`;
+}
+
+/** `nagabot/web` — the compose identity, when the daemon gave us one. */
+export function composeLabel(container: ServerContainer): string | null {
+  if (container.composeProject && container.composeService) {
+    return `${container.composeProject}/${container.composeService}`;
+  }
+  return container.composeService ?? container.composeProject;
 }
 
 /** The last path segment of a working directory; `/` keeps its own name. */
@@ -98,12 +109,15 @@ export function formatFolder(cwd: string | null, home: string | null): string | 
 }
 
 /**
- * The honest value for the folder/container column: a real path, a published
- * mapping, or an explicit statement that it could not be read. Never a bare
- * dash, because "unreadable" and "this app has no folder" are different facts.
+ * The honest value for the folder/container column: a real path — the compose
+ * working directory when the daemon knows it, so container rows get folders too
+ * — a published mapping, or an explicit statement that it could not be read.
+ * Never a bare dash, because "unreadable" and "this app has no folder" differ.
  */
 export function folderDetail(listener: ServerListener): string {
   if (listener.container) {
+    const folder = formatContainerFolder(listener.container.workingDir);
+    if (folder) return folder;
     const publish = listener.container.publish;
     if (publish) {
       return `Docker · published ${publish.hostPort} → container ${publish.containerIp}:${publish.containerPort}`;
@@ -114,6 +128,17 @@ export function folderDetail(listener: ServerListener): string {
   if (folder) return folder;
   if (listener.pid !== null) return "folder not readable for this process";
   return "owner not identified";
+}
+
+/**
+ * `/home/sandbox/ws/nagabot` → `~/ws/nagabot`. The daemon reports the host path,
+ * so it is shortened by shape rather than by a `$HOME` we do not have for a
+ * container.
+ */
+export function formatContainerFolder(workingDir: string | null): string | null {
+  if (!workingDir) return null;
+  const match = /^(\/(?:home|Users)\/[^/]+)\//.exec(workingDir);
+  return match ? `~${workingDir.slice(match[1].length)}` : workingDir;
 }
 
 /** `python3 · http.server` from argv, so two python servers are told apart. */
@@ -180,7 +205,7 @@ export interface ListenerGroup {
   detail: string;
   /** `python3 · http.server`, when it can be derived. */
   runtime: string | null;
-  container: ContainerAttribution | null;
+  container: ServerContainer | null;
   ports: number[];
   addresses: string[];
   protocols: ListenerProtocol[];
@@ -231,7 +256,8 @@ export function groupListeners(listeners: ServerListener[]): ListenerGroup[] {
       );
       const uptimes = members.map((listener) => listener.uptimeSeconds).filter((value) => value !== null);
       const name = listenerName(first);
-      const runtime = runtimeDetail(first);
+      // A container's image is its runtime line, where the daemon gave us one.
+      const runtime = first.container?.image ?? runtimeDetail(first);
       return {
         key,
         kind: listenerKind(first),
@@ -270,6 +296,13 @@ export function matchesGroupFilter(group: ListenerGroup, query: string): boolean
     group.detail,
     group.runtime ?? "",
     group.container?.id ?? "",
+    group.container?.name ?? "",
+    group.container?.image ?? "",
+    group.container?.composeProject ?? "",
+    group.container?.composeService ?? "",
+    group.container?.workingDir ?? "",
+    group.container?.publish?.containerIp ?? "",
+    group.container?.publish?.containerPort === undefined ? "" : String(group.container.publish.containerPort),
     group.nexusRole === null ? "" : NEXUS_ROLE_LABELS[group.nexusRole],
     ...group.ports.map(String),
     ...group.addresses,

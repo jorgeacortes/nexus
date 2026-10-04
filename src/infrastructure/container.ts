@@ -4,6 +4,7 @@ import type { LiveAgentPort } from "@/domain/tasks/live-agents";
 import type { ProjectReferencePort } from "@/domain/tasks/project-reference";
 import type { TaskRepository } from "@/domain/tasks/task.repository";
 import { db } from "@/infrastructure/db/nexus/db";
+import { type ContainerInventoryPort, HttpContainerInventory } from "@/infrastructure/docker/container-inventory";
 import { HerdrClient, type HerdrPort } from "@/infrastructure/herdr/herdr-client";
 import { DrizzleProjectRepository } from "@/infrastructure/repositories/projects/drizzle-project.repository";
 import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizzle-task.repository";
@@ -22,6 +23,7 @@ export const projectRepo: ProjectRepository = new DrizzleProjectRepository(db);
 export const taskRepo: TaskRepository = new DrizzleTaskRepository(db);
 export const herdrClient: HerdrPort = new HerdrClient();
 export const serverCollector: ServerCollectorPort = new ProcfsServerCollector();
+export const containerInventory: ContainerInventoryPort = new HttpContainerInventory();
 
 /** The ports Nexus itself answers on, so the Servers screen can mark its own rows. */
 export const nexusPorts: NexusPorts = resolveNexusPorts();
