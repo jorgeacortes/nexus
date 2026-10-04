@@ -141,22 +141,26 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
 
 ## Branding
 
-- The app's mark is the StarCraft II Protoss Nexus (Wings of Liberty era): Blizzard
-  art, personal use only, taken from the StarCraft Wiki file `Nexus SC2 DevRend3.jpg`
-  (`starcraft.fandom.com`) — a 568×575 render on a black background.
-- Source of truth: `assets/branding/nexus-sc2-master.png` (610×610, RGBA). It is that
-  render with the black background keyed out — flood fill from the border, so dark
-  pixels inside the silhouette survive; one-pixel feathered edge; colours
-  unpremultiplied; padded to a square. The files under `src/app/` are **generated**
-  from it and are never hand-edited: `apple-icon.png` (180×180, the one the UI
-  imports), `icon.png` (64×64) and `favicon.ico` (PNG-in-ICO at 16/32/48), wired
-  through the `icons` block in `src/app/layout.tsx`. Do not redraw the art, do not add
-  a `public/` copy, and never upscale `icon.png`.
+- The app's mark is the **StarCraft II in-game building icon for the Nexus** — the art
+  the game's own UI uses for the building, not a 3D render (the render was tried in
+  bb57489 and the operator preferred the UI icon).
+- Source of truth: `assets/branding/nexus-sc2-ui-icon.dds`, the raw command-card
+  button asset taken from the Blizzard game files and mirrored in the
+  `NobleXenon/AP_SC2Icons` repo as `dds/liberty/btn-building-protoss-nexus.dds`
+  (76×76, DXT5). Blizzard art, personal use only. 76×76 is the native resolution of
+  this art, so the 180px icon is a documented upscale, not a downscale of a larger
+  original.
+- `scripts/make-brand-icons.mjs` decodes that DDS (BC1/BC3, no image library) and
+  writes everything derived from it with a Lanczos-3 resample:
+  `assets/branding/nexus-sc2-ui-icon.png` (the decoded 76×76 master, for reading),
+  `src/app/apple-icon.png` (180×180), `src/app/icon.png` (64×64) and
+  `src/app/favicon.ico` (PNG-in-ICO at 16/32/48). Run the script instead of editing
+  the outputs by hand; the `icons` block in `src/app/layout.tsx` serves them.
 - In the UI it renders in `SidebarBrand` (`src/app/(main)/_components/sidebar-nav.tsx`),
   which the desktop rail and the mobile drawer share: `next/image` imports
   `apple-icon.png` directly at an explicit 32×32 in the brand block's `size-8` slot, so
-  the block cannot shift on load. The art is transparent, so it sits on the sidebar
-  as-is: never put a coloured plate behind it.
+  the block cannot shift on load. The icon brings the game's own dark tile as its
+  background: never put a coloured plate behind it and never add a `public/` copy.
 
 ## Code conventions
 
