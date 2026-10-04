@@ -1,7 +1,7 @@
 "use client";
 
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { toast } from "sonner";
@@ -15,6 +15,15 @@ import { cn } from "@/lib/utils";
 
 import { PageHeader } from "../../_components/page-header";
 import { BoardColumn } from "./board-column";
+import {
+  BOARD_PROJECT_PARAM,
+  hrefWithProjectFilter,
+  matchesProjectFilter,
+  type ProjectFilter,
+  parseProjectFilter,
+  projectFilterCounts,
+} from "./board-filter";
+import { BoardFilterBar } from "./board-filter-bar";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { TaskDetailSheet } from "./task-detail-sheet";
 
@@ -35,6 +44,26 @@ export function BoardClient({
   const [tasks, setTasks] = useState<TaskDto[]>(initialTasks);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const live = useLiveAgents(initialLive);
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+
+  const projectFilter = useMemo(
+    () => parseProjectFilter(searchParams.get(BOARD_PROJECT_PARAM), initialProjects),
+    [searchParams, initialProjects],
+  );
+
+  // The selection belongs in the URL: a narrowed board survives a refresh and
+  // can be shared. replaceState (not push) keeps the History stack clean while
+  // clicking through projects, and still updates useSearchParams.
+  const setProjectFilter = useCallback(
+    (filter: ProjectFilter) => {
+      const href = hrefWithProjectFilter(pathname, filter, new URLSearchParams(searchParams.toString()));
+      window.history.replaceState(null, "", href);
+    },
+    [pathname, searchParams],
+  );
+
+  const filterCounts = useMemo(() => projectFilterCounts(tasks), [tasks]);
 
   const liveByPaneId = useMemo(() => {
     const map = new Map<string, LiveAgent>();
@@ -49,12 +78,17 @@ export function BoardClient({
     [initialProjects],
   );
 
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => matchesProjectFilter(task, projectFilter)),
+    [tasks, projectFilter],
+  );
+
   const byStatus = useMemo(() => {
     const grouped = new Map<TaskStatus, TaskDto[]>();
     for (const status of TASK_STATUSES) {
       grouped.set(status, []);
     }
-    for (const task of tasks) {
+    for (const task of visibleTasks) {
       grouped.get(task.status)?.push(task);
     }
     for (const list of grouped.values()) {
@@ -66,6 +100,18 @@ export function BoardClient({
       });
     }
     return grouped;
+  }, [visibleTasks]);
+
+  // Totals over every task, so a column can say how much the filter is hiding.
+  const totalByStatus = useMemo(() => {
+    const counts = new Map<TaskStatus, number>();
+    for (const status of TASK_STATUSES) {
+      counts.set(status, 0);
+    }
+    for (const task of tasks) {
+      counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
+    }
+    return counts;
   }, [tasks]);
 
   const moveTask = useCallback(
@@ -107,6 +153,14 @@ export function BoardClient({
           </div>
         }
       />
+      <BoardFilterBar
+        projects={initialProjects}
+        counts={filterCounts}
+        total={tasks.length}
+        visible={visibleTasks.length}
+        value={projectFilter}
+        onChange={setProjectFilter}
+      />
       <DndProvider backend={HTML5Backend}>
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4 md:p-6">
           {TASK_STATUSES.map((status) => (
@@ -114,6 +168,7 @@ export function BoardClient({
               key={status}
               status={status}
               tasks={byStatus.get(status) ?? []}
+              hiddenCount={(totalByStatus.get(status) ?? 0) - (byStatus.get(status)?.length ?? 0)}
               projectNames={projectNames}
               liveByPaneId={liveByPaneId}
               onDropTask={moveTask}

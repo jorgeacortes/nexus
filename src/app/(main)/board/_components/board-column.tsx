@@ -15,6 +15,7 @@ import { TASK_DRAG_TYPE, TaskCard } from "./task-card";
 export function BoardColumn({
   status,
   tasks,
+  hiddenCount,
   projectNames,
   liveByPaneId,
   onDropTask,
@@ -22,6 +23,8 @@ export function BoardColumn({
 }: {
   status: TaskStatus;
   tasks: TaskDto[];
+  /** Tasks in this status that the project filter is hiding. */
+  hiddenCount: number;
   projectNames: Map<string, string>;
   liveByPaneId: Map<string, LiveAgent>;
   onDropTask: (taskId: string, status: TaskStatus) => void;
@@ -42,7 +45,12 @@ export function BoardColumn({
       <header className="flex items-center gap-2 px-3 py-2.5">
         <span className={cn("size-2 rounded-full", meta.dot)} />
         <h2 className="text-sm font-semibold">{meta.label}</h2>
-        <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground">{tasks.length}</span>
+        <span
+          className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums"
+          title={hiddenCount > 0 ? `${tasks.length} shown, ${hiddenCount} hidden by the project filter` : undefined}
+        >
+          {hiddenCount > 0 ? `${tasks.length}/${tasks.length + hiddenCount}` : tasks.length}
+        </span>
         <span className="ml-auto hidden text-[11px] text-muted-foreground xl:inline">{meta.hint}</span>
       </header>
 
@@ -60,9 +68,15 @@ export function BoardColumn({
           />
         ))}
         {tasks.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            Drop a task here
-          </p>
+          hiddenCount > 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+              {hiddenCount} hidden by the project filter
+            </p>
+          ) : (
+            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+              Drop a task here
+            </p>
+          )
         ) : null}
       </div>
     </section>
