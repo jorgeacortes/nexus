@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
+import { PROMPTABLE_HARNESSES } from "@/domain/tasks/task";
 import { useLiveAgents } from "@/hooks/use-live-agents";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
@@ -29,7 +30,7 @@ import { NeedsHumanBadge } from "../../board/_components/needs-human-badge";
 
 /** Harnesses Nexus can prompt back through Herdr; Cursor resolves by hand. */
 function canPrompt(task: TaskDto): boolean {
-  return Boolean(task.herdrPaneId) && (task.harness === "pi" || task.harness === "claude_code");
+  return Boolean(task.herdrPaneId) && task.harness !== null && PROMPTABLE_HARNESSES.includes(task.harness);
 }
 
 /** Inbox: tasks whose ball is in the operator's court, agent-blocked suggestions, and triage. */

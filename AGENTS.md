@@ -52,7 +52,7 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 ## Herdr integration
 
 - Herdr exposes a JSON-RPC API over a Unix socket via `herdr api snapshot` / schema-driven methods. Do not guess the protocol; `herdr api schema --json` is the source of truth for methods and params.
-- Herdr sees terminal harnesses (pi, Claude Code) but not Cursor. SQLite owns assignments (harness/model/effort); Herdr owns live status. The Kanban UI composes both.
+- Herdr sees terminal harnesses (pi, Claude Code, Agy) but not Cursor. SQLite owns assignments (harness/model/effort); Herdr owns live status. The Kanban UI composes both.
 - Agent identity (`agent_name` + `harness`) is resolved from the live snapshot when a task is claimed or dispatched (`agentIdentityForPane` in `src/domain/tasks/live-agents.ts`): the pane's agent kind, never its Herdr tab id. Herdr being unavailable leaves both null (the chip falls back to "Agent") and never fails a claim. That resolver is the only writer of these fields on the claim/dispatch paths.
 
 ## Host listeners (Servers screen)

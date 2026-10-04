@@ -52,6 +52,22 @@ describe("ResolveTaskUseCase", () => {
     expect(calls).toEqual([["wK:p1", "Use the staging key."]]);
   });
 
+  it("prompts an agy pane (a terminal harness)", async () => {
+    const repo = new DrizzleTaskRepository(createTestDb());
+    const task = await repo.save({
+      title: "blocked",
+      assignee: "agent",
+      harness: "agy",
+      herdrPaneId: "wA:p1",
+      needsHuman: true,
+    });
+
+    const { port, calls } = recordingPrompt();
+    const resolved = await new ResolveTaskUseCase(repo, port).execute(task.id);
+    expect(calls).toEqual([["wA:p1", DEFAULT_UNBLOCK_PROMPT]]);
+    expect(resolved.needsHuman).toBe(false);
+  });
+
   it("clears a Cursor task without prompting", async () => {
     const repo = new DrizzleTaskRepository(createTestDb());
     const task = await repo.save({

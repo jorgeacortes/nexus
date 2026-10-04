@@ -7,6 +7,7 @@ import {
   effortsForModel,
   HARNESSES,
   harnessFromAgentKind,
+  isKnownModelForHarness,
   isValidEffort,
   KNOWN_MODELS,
   normalizeAssignment,
@@ -27,13 +28,22 @@ describe("effort validation", () => {
     expect(isValidEffort("gemini-3.8-flash", "xhigh")).toBe(false);
   });
 
-  it("keeps a model's effort vocabulary identical across harnesses", () => {
-    for (const model of Object.keys(KNOWN_MODELS.pi)) {
-      const efforts = effortsForModel(model);
-      for (const harness of HARNESSES) {
-        const harnessEfforts = (KNOWN_MODELS[harness] as Record<string, readonly string[]>)[model];
-        if (harnessEfforts) {
-          expect(harnessEfforts).toEqual(efforts);
+  it("keeps a model's effort vocabulary consistent per harness", () => {
+    expect(effortsForModel("gemini-3.8-flash", "agy")).toEqual(["low", "medium", "high"]);
+    expect(effortsForModel("gemini-3.8-flash", "pi")).toContain("minimal");
+    // A shared model name may expose different efforts under different harnesses.
+    expect(isValidEffort("gemini-3.8-flash", "minimal", "agy")).toBe(false);
+    expect(isValidEffort("gemini-3.8-flash", "minimal", "pi")).toBe(true);
+    expect(effortsForModel("gemini-3.1-pro", "agy")).toEqual(["low", "high"]);
+    expect(effortsForModel("gpt-oss-120b", "agy")).toEqual(["medium"]);
+  });
+
+  it("round-trips every registered harness/model/effort", () => {
+    for (const harness of HARNESSES) {
+      for (const [model, efforts] of Object.entries(KNOWN_MODELS[harness])) {
+        expect(isKnownModelForHarness(harness, model)).toBe(true);
+        for (const effort of efforts) {
+          expect(isValidEffort(model, effort, harness)).toBe(true);
         }
       }
     }
@@ -46,6 +56,8 @@ describe("harnessFromAgentKind", () => {
     expect(harnessFromAgentKind("claude")).toBe("claude_code");
     expect(harnessFromAgentKind("claude-code")).toBe("claude_code");
     expect(harnessFromAgentKind(" Cursor ")).toBe("cursor");
+    expect(harnessFromAgentKind("agy")).toBe("agy");
+    expect(harnessFromAgentKind("Antigravity")).toBe("agy");
   });
 
   it("leaves a kind the registry does not know unlinked", () => {
@@ -79,6 +91,18 @@ describe("normalizeAssignment", () => {
 
   it("requires a model when an effort is given", () => {
     expect(() => normalizeAssignment({ assignee: "agent", effort: "high" })).toThrow(/requires a model/);
+  });
+
+  it("accepts a normalised agy model/effort pair and rejects an unsupported effort", () => {
+    expect(
+      normalizeAssignment({ assignee: "agent", harness: "agy", model: "gemini-3.8-flash", effort: "high" }),
+    ).toMatchObject({ harness: "agy", model: "gemini-3.8-flash", effort: "high" });
+    expect(() =>
+      normalizeAssignment({ assignee: "agent", harness: "agy", model: "gemini-3.8-flash", effort: "minimal" }),
+    ).toThrow(TaskValidationError);
+    expect(() =>
+      normalizeAssignment({ assignee: "agent", harness: "agy", model: "gpt-5.6-luna", effort: "high" }),
+    ).toThrow(/not offered/);
   });
 
   it("keeps an unknown agent kind as the agent name", () => {
@@ -146,6 +170,13 @@ describe("claimTask", () => {
     const claimed = claimTask(task, { paneId: "wR:p1" });
     expect(claimed.model).toBe("gpt-5.6-luna");
     expect(claimed.effort).toBe("xhigh");
+  });
+
+  it("records the agy harness when claimed from an agy pane", () => {
+    const task = createTask({ title: "t", status: "ready" });
+    const claimed = claimTask(task, { paneId: "wA:p1", agentName: "agy", harness: "agy" });
+    expect(claimed.agentName).toBe("agy");
+    expect(claimed.harness).toBe("agy");
   });
 
   it("is idempotent for the same pane", () => {

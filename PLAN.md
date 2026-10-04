@@ -6,7 +6,7 @@ This is the single source of truth for the project's product decisions and imple
 
 ## Intent, goals, and constraints
 
-**Intent.** The operator runs several AI coding agents across multiple harnesses (pi, Claude Code, Cursor) inside Herdr, one workspace per project (crm development, linkedin posts, nagabot development, proposal creation…), each project living in its own folder. Today, monitoring what agents are doing means inspecting Herdr directly, and the work to be done lives in scattered lists. Nexus exists to give one glanceable place for both.
+**Intent.** The operator runs several AI coding agents across multiple harnesses (pi, Claude Code, Cursor, Agy) inside Herdr, one workspace per project (crm development, linkedin posts, nagabot development, proposal creation…), each project living in its own folder. Today, monitoring what agents are doing means inspecting Herdr directly, and the work to be done lives in scattered lists. Nexus exists to give one glanceable place for both.
 
 **Goals.**
 1. **Monitor agents:** see every agent across harnesses and what it is doing right now (working/idle/blocked, current task, live titles).
@@ -27,8 +27,8 @@ This is the single source of truth for the project's product decisions and imple
 2. **One kanban board for everything.** No board-per-project. The project is a **tag on the card**.
 3. **Two-level model: Project → Tasks.** The card is the **task**: an actionable unit ("implement TAVILY support", "refine post on Y", "validate Z"), done by one actor — an agent **or the operator**. The project is the stable container ("crm development", "linkedin posts", "nagabot", "proposals") that holds many tasks.
 4. **Each project lives in one folder.** `folder_path` on the project (e.g. `~/ws/biznagatec-crm`), nullable. The Herdr workspace link (`herdr_workspace_id`) is separate and optional: a project may have a folder but no Herdr workspace, or vice versa.
-5. **Multiple agent harnesses.** The operator runs **pi, Claude Code, and Cursor**. Every agent assignment records harness, model, and effort. **Effort is a property of the model, not the harness** — the harness only exposes the picker; valid effort values come from the chosen model (e.g. GPT-5 `xhigh` vs a Claude model's `medium`/`high`). Assignment records a `(model, effort)` pair; the harness only constrains which models are offered.
-6. **Herdr is best-effort live state, not the registry.** Herdr sees terminal harnesses (pi, Claude Code) but **not Cursor** (GUI). Harness/model/effort assigned to a task live in SQLite; live status (working/idle/blocked, terminal titles) is read from Herdr when the harness is visible there, and absent for Cursor.
+5. **Multiple agent harnesses.** The operator runs **pi, Claude Code, Cursor, and Agy (Antigravity)**. Every agent assignment records harness, model, and effort. **Effort is a property of the model, not the harness** — a model owns its effort vocabulary, and the harness declares which of those efforts it exposes for that model (e.g. GPT-5 `xhigh` vs a Claude model's `medium`/`high`; agy's `gemini-3.8-flash` has no `minimal`, while pi's model of the same name does). Assignment records a `(model, effort)` pair; the harness only constrains which models are offered and which of a model's efforts are selectable.
+6. **Herdr is best-effort live state, not the registry.** Herdr sees terminal harnesses (pi, Claude Code, Agy) but **not Cursor** (GUI). Harness/model/effort assigned to a task live in SQLite; live status (working/idle/blocked, terminal titles) is read from Herdr when the harness is visible there, and absent for Cursor.
 7. **Assignment lives on the task** as nullable columns (no history table): `assignee = me | agent | null` plus, when agent: `agent_name`, `harness`, `model`, `effort`, optional `herdr_pane_id` live link. Loose pointers, not foreign keys into Herdr.
 8. **Tasks without a project are allowed** (nullable `project_id`) — a dump-and-triage inbox.
 9. **Models registry is a static TypeScript constant** (`harness → model → supported efforts`), hand-maintained in the codebase; it drives UI dropdowns and validates the `(model, effort)` pair. Adding a model means editing the file — nothing is auto-discovered.
@@ -54,7 +54,7 @@ Project (folder + optional Herdr workspace; the tag)
 - `id`, `project_id` (nullable), `title`, `description`
 - `status`: `backlog | ready | in_progress | blocked | done`
 - `assignee`: `me | agent | null`
-- when `assignee = agent`: `agent_name` (nullable; the live Herdr agent kind — `pi`, `claude_code`, `cursor`, or an unmapped kind — never a Herdr tab id), `harness` (nullable; `pi | claude_code | cursor`), `model` (nullable text, e.g. `sonnet-5.5`), `effort` (nullable text, validated against the model per the registry), `herdr_pane_id` (nullable live link)
+- when `assignee = agent`: `agent_name` (nullable; the live Herdr agent kind — `pi`, `claude_code`, `cursor`, `agy`, or an unmapped kind — never a Herdr tab id), `harness` (nullable; `pi | claude_code | cursor | agy`), `model` (nullable text, e.g. `sonnet-5.5`), `effort` (nullable text, validated against the model per the registry), `herdr_pane_id` (nullable live link)
 - `needs_human` + `needs_human_reason`
 - `created_at`, `updated_at`
 
@@ -93,7 +93,7 @@ Project (folder + optional Herdr workspace; the tag)
 5. Semantic theme tokens, light/dark, matching CRM screen rhythm
 
 ### Phase 3 — Agent monitoring
-1. `/api/herdr/snapshot` route returning normalized agent state (`HerdrClient` already reads the live session — 7 agents/7 tabs verified live); map Herdr agent kind → harness (`pi` → pi, `claude` → claude_code)
+1. `/api/herdr/snapshot` route returning normalized agent state (`HerdrClient` already reads the live session — 7 agents/7 tabs verified live); map Herdr agent kind → harness (`pi` → pi, `claude` → claude_code, `agy` → agy)
 2. Agents overview screen: status per Herdr-visible agent (cwd, terminal title, working/idle/blocked); Cursor tasks show only stored task state, updated by hand
 3. Board composes tasks (SQLite) + live agent status (Herdr) by `herdr_pane_id` / project workspace
 4. Refresh via polling first (SWR-style); SSE only if polling disappoints

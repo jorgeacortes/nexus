@@ -1,13 +1,10 @@
 import { AgentUnreachableError, TaskNotFoundError } from "@/application/tasks/errors";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
-import type { Harness, Task } from "@/domain/tasks/task";
+import { PROMPTABLE_HARNESSES, type Task } from "@/domain/tasks/task";
 import type { TaskRepository } from "@/domain/tasks/task.repository";
 
 export const DEFAULT_UNBLOCK_PROMPT =
   "You were flagged as needing human input — it is resolved. Please continue with the task.";
-
-/** Harnesses Nexus can talk to over the Herdr socket; Cursor is resolved by hand. */
-const PROMPTABLE_HARNESSES: readonly Harness[] = ["pi", "claude_code"];
 
 /**
  * Resolves a task awaiting human action: for terminal harnesses with a linked

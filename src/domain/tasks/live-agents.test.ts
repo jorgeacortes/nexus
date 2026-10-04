@@ -8,9 +8,10 @@ function agent(paneId: string, agentKind: string): LiveAgentInfo {
 
 describe("agentIdentityForPane", () => {
   it("resolves the pane's live kind and mapped harness", () => {
-    const agents = [agent("wR:p1", "claude"), agent("wP:p4", "codex")];
+    const agents = [agent("wR:p1", "claude"), agent("wP:p4", "codex"), agent("wA:p1", "agy")];
     expect(agentIdentityForPane(agents, "wR:p1")).toEqual({ agentName: "claude", harness: "claude_code" });
     expect(agentIdentityForPane(agents, "wP:p4")).toEqual({ agentName: "codex", harness: null });
+    expect(agentIdentityForPane(agents, "wA:p1")).toEqual({ agentName: "agy", harness: "agy" });
   });
 
   it("yields no identity for an unknown, empty, or missing pane", () => {

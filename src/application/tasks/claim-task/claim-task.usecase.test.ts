@@ -29,6 +29,18 @@ describe("ClaimTaskUseCase", () => {
     expect(claimed.herdrPaneId).toBe("wR:p1");
   });
 
+  it("records the agy harness when the pane runs an agy session", async () => {
+    const repo = new DrizzleTaskRepository(createTestDb());
+    const task = await repo.save({ title: "antigravity work", status: "ready" });
+    const claimed = await new ClaimTaskUseCase(repo, liveAgents([agent("wA:p1", "agy")])).execute(task.id, {
+      paneId: "wA:p1",
+    });
+    expect(claimed.status).toBe("in_progress");
+    expect(claimed.agentName).toBe("agy");
+    expect(claimed.harness).toBe("agy");
+    expect(claimed.herdrPaneId).toBe("wA:p1");
+  });
+
   it("leaves the identity empty when the pane is not a live agent", async () => {
     const repo = new DrizzleTaskRepository(createTestDb());
     const task = await repo.save({ title: "bare shell", status: "ready" });

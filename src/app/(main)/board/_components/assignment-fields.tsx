@@ -44,7 +44,8 @@ const ASSIGNEE_OPTIONS: Array<{ value: AssigneeType | null; label: string; icon:
 
 /**
  * Assignee picker: operator vs one agent, then harness → model → effort. The
- * model owns the effort vocabulary; the harness only narrows the model list.
+ * harness narrows the model list and the efforts each model exposes; effort
+ * still belongs to the chosen model.
  */
 export function AssignmentFields({
   value,
@@ -54,14 +55,14 @@ export function AssignmentFields({
   onChange: (next: AssignmentValue) => void;
 }) {
   const models = value.harness ? modelsForHarness(value.harness) : [];
-  const efforts = value.model ? effortsForModel(value.model) : [];
+  const efforts = value.model ? effortsForModel(value.model, value.harness) : [];
 
   function setHarness(harness: Harness) {
     onChange({ assignee: "agent", harness, model: modelsForHarness(harness)[0] ?? null, effort: null });
   }
 
   function setModel(model: string) {
-    const nextEfforts = effortsForModel(model);
+    const nextEfforts = effortsForModel(model, value.harness);
     const effort = value.effort && nextEfforts.includes(value.effort as Effort) ? value.effort : null;
     onChange({ ...value, model, effort });
   }

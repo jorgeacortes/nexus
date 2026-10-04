@@ -1,7 +1,7 @@
 # Nexus
 
 Personal agent operations console: one glanceable place to monitor AI coding
-agents (pi, Claude Code, Cursor) and manage their work as tasks on a single
+agents (pi, Claude Code, Cursor, Agy) and manage their work as tasks on a single
 kanban board.
 
 - **Board** — one board for everything; the project is a tag on the card. Status
@@ -9,6 +9,8 @@ kanban board.
   *whose court is the ball in?*
 - **Agents** — live status from the Herdr socket, composed with the SQLite
   assignment (harness → model → effort). Cursor tasks show stored state only.
+  Agy (Antigravity) is a terminal harness: `agy` panes are monitored and
+  promptable like pi and Claude Code.
 - **Servers** — what is listening on the host: port, protocol, bind address
   (loopback vs all interfaces), owning process/PID, and uptime, read from the
   host's procfs and refreshed every 5 seconds. Nexus' own ports are marked, the
@@ -91,7 +93,7 @@ the card's detail panel next to the claim/completion timestamps. `nx board` and
 ### Agent skill
 
 The convention agents follow is packaged as a skill at `skills/nx-tasks/SKILL.md`.
-Install it for every harness on the machine — pi and Cursor read
+Install it for every harness on the machine — pi, Cursor, and Agy read
 `~/.agents/skills` natively, Claude Code needs the link:
 
 ```bash

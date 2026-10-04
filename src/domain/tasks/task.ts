@@ -10,14 +10,22 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const ASSIGNEE_TYPES = ["me", "agent"] as const;
 export type AssigneeType = (typeof ASSIGNEE_TYPES)[number];
 
-export const HARNESSES = ["pi", "claude_code", "cursor"] as const;
+export const HARNESSES = ["pi", "claude_code", "cursor", "agy"] as const;
 export type Harness = (typeof HARNESSES)[number];
 
 export const HARNESS_LABELS: Record<Harness, string> = {
   pi: "pi",
   claude_code: "Claude Code",
   cursor: "Cursor",
+  agy: "Agy",
 };
+
+/**
+ * Harnesses Nexus can talk to over the Herdr socket (`agent.prompt`). Cursor is
+ * a GUI and is resolved by hand. Shared by the resolve use case and the Inbox so
+ * the two never disagree about who can be prompted.
+ */
+export const PROMPTABLE_HARNESSES: readonly Harness[] = ["pi", "claude_code", "agy"];
 
 /**
  * Maps a Herdr agent kind to a Nexus harness. Herdr reports more kinds than the
@@ -29,6 +37,7 @@ export function harnessFromAgentKind(kind: string): Harness | null {
   if (normalized === "pi") return "pi";
   if (normalized === "claude" || normalized === "claude_code" || normalized === "claude-code") return "claude_code";
   if (normalized === "cursor") return "cursor";
+  if (normalized === "agy" || normalized === "antigravity") return "agy";
   return null;
 }
 
@@ -57,6 +66,20 @@ export const KNOWN_MODELS = {
     "gpt-5.6-luna": ["low", "medium", "high", "xhigh"],
     "gemini-3.8-flash": ["minimal", "low", "medium", "high"],
     "grok-4.6": ["low", "medium", "high"],
+  },
+  // antigravity (`agy`) hands out models with the effort baked into the id it
+  // prints (`agy models` lists `gemini-3.8-flash-high`), but the CLI accepts the
+  // base model plus `--effort`. The registry stores the normalised pair, so the
+  // effort vocabulary is verified per model (agy's flash has no `minimal`,
+  // unlike pi's entry of the same name).
+  agy: {
+    "gemini-3.8-flash": ["low", "medium", "high"],
+    "gemini-3.7-flash": ["low", "medium", "high"],
+    "gemini-3.6-flash": ["low", "medium", "high"],
+    "gemini-3.1-pro": ["low", "high"],
+    "claude-opus-5-5": ["low", "medium", "high"],
+    "claude-sonnet-5-5": ["low", "medium", "high"],
+    "gpt-oss-120b": ["medium"],
   },
 } as const satisfies Record<Harness, Record<string, readonly Effort[]>>;
 
@@ -103,12 +126,18 @@ export function modelsForHarness(harness: Harness): readonly string[] {
 }
 
 /**
- * Efforts a model supports. The model owns its effort vocabulary, so the same
- * model reports the same efforts under every harness.
+ * Efforts a model supports. Effort is a property of the model, but the harness
+ * declares which of them it exposes for that model — `agy`'s `gemini-3.8-flash`
+ * has no `minimal`, while pi's entry of the same name does — so pass the harness
+ * whenever it is known. Without one, the first registry hit wins.
  */
-export function effortsForModel(model: string): readonly Effort[] {
-  for (const harness of HARNESSES) {
+export function effortsForModel(model: string, harness?: Harness | null): readonly Effort[] {
+  if (harness) {
     const efforts = (KNOWN_MODELS[harness] as Record<string, readonly Effort[]>)[model];
+    if (efforts) return efforts;
+  }
+  for (const candidate of HARNESSES) {
+    const efforts = (KNOWN_MODELS[candidate] as Record<string, readonly Effort[]>)[model];
     if (efforts) return efforts;
   }
   return [];
@@ -118,8 +147,8 @@ export function isKnownModelForHarness(harness: Harness, model: string): boolean
   return modelsForHarness(harness).includes(model);
 }
 
-export function isValidEffort(model: string, effort: string): boolean {
-  return effortsForModel(model).includes(effort as Effort);
+export function isValidEffort(model: string, effort: string, harness?: Harness | null): boolean {
+  return effortsForModel(model, harness).includes(effort as Effort);
 }
 
 export type Task = {
@@ -130,9 +159,9 @@ export type Task = {
   status: TaskStatus;
   assignee: AssigneeType | null;
   /**
-   * The live Herdr agent kind behind the task (`pi`, `claude_code`, `cursor`, or
-   * a kind Nexus does not map yet — `codex`, `aider`). Written only by the pane
-   * identity resolver from a live snapshot: never a Herdr tab/pane id, never
+   * The live Herdr agent kind behind the task (`pi`, `claude_code`, `cursor`,
+   * `agy`, or a kind Nexus does not map yet — `codex`, `aider`). Written only by
+   * the pane identity resolver from a live snapshot: never a Herdr tab/pane id, never
    * free text. Null when the pane is not a live agent.
    */
   agentName: string | null;
@@ -260,7 +289,7 @@ export function normalizeAssignment(input: {
   if (effort && !model) {
     throw new TaskValidationError("An effort requires a model.");
   }
-  if (model && effort && !isValidEffort(model, effort)) {
+  if (model && effort && !isValidEffort(model, effort, harness)) {
     throw new TaskValidationError(`Effort "${effort}" is not valid for model "${model}".`);
   }
 
