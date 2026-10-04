@@ -54,6 +54,16 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 - Herdr exposes a JSON-RPC API over a Unix socket via `herdr api snapshot` / schema-driven methods. Do not guess the protocol; `herdr api schema --json` is the source of truth for methods and params.
 - Herdr sees terminal harnesses (pi, Claude Code, Agy) but not Cursor. SQLite owns assignments (harness/model/effort); Herdr owns live status. The Kanban UI composes both.
 - Agent identity (`agent_name` + `harness`) is resolved from the live snapshot when a task is claimed or dispatched (`agentIdentityForPane` in `src/domain/tasks/live-agents.ts`): the pane's agent kind, never its Herdr tab id. Herdr being unavailable leaves both null (the chip falls back to "Agent") and never fails a claim. That resolver is the only writer of these fields on the claim/dispatch paths.
+- The model/effort tag on a board card describes what the agent is *running*, not
+  who owns the card: `AssigneeChip` stays the owner/harness chip, and `TaskCard`
+  renders a separate tag next to it. The live model wins while the pane is online
+  (`LiveAgent.model`, from Herdr's `quota_provider_model`/`quota_model`). Effort
+  has no Herdr source — a live `herdr api snapshot` carries `quota_model`,
+  `quota_provider_model`, `quota_topic`, etc., but nothing effort-shaped — so the
+  tag falls back to the stored `tasks.effort` recorded at assignment; `effortOf`
+  in `herdr-client.ts` already consumes a `quota_effort`/`effort` token if Herdr
+  ever adds one. The tag is hidden when the card has no agent or no model/effort
+  to show, and truncates at 170px to keep cards narrow.
 
 ## Host listeners (Servers screen)
 

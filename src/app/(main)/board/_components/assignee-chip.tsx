@@ -8,7 +8,15 @@ import { cn } from "@/lib/utils";
 type AssigneeFields = Pick<TaskDto, "assignee" | "agentName" | "harness" | "model" | "effort">;
 
 /** Compact "who owns this" chip: you, or one agent with its model/effort. */
-export function AssigneeChip({ task, className }: { task: AssigneeFields; className?: string }) {
+export function AssigneeChip({
+  task,
+  className,
+  showDetails = true,
+}: {
+  task: AssigneeFields;
+  className?: string;
+  showDetails?: boolean;
+}) {
   if (task.assignee === "me") {
     return (
       <Badge variant="secondary" className={cn("gap-1", className)}>
@@ -29,7 +37,7 @@ export function AssigneeChip({ task, className }: { task: AssigneeFields; classN
       >
         <Bot className="size-3" />
         <span>{harness}</span>
-        {detail ? <span className="text-muted-foreground">{detail}</span> : null}
+        {showDetails && detail ? <span className="text-muted-foreground">{detail}</span> : null}
       </Badge>
     );
   }

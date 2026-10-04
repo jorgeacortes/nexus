@@ -36,12 +36,33 @@ describe("parseSnapshot", () => {
       cwd: "/home/sandbox/ws/nexus",
       terminalTitle: "task review",
       model: "Claude/Sonnet 5.5",
+      effort: null,
       topic: "reviewing the board",
       focused: true,
     });
     expect(snapshot.agents[1].agentStatus).toBe("unknown");
+    expect(snapshot.agents[1].effort).toBeNull();
     expect(snapshot.workspaces[0]?.label).toBe("valua proposal");
     expect(snapshot.focusedPaneId).toBe("wK:p1");
+  });
+
+  it("parses effort from quota_effort or effort token fields", () => {
+    const snapshot = parseSnapshot({
+      agents: [
+        {
+          agent: "agy",
+          pane_id: "wR:p1",
+          tokens: { quota_model: "gemini-3.8-flash", quota_effort: "high" },
+        },
+        {
+          agent: "pi",
+          pane_id: "wR:p2",
+          tokens: { model: "gpt-5.6-luna", effort: "xhigh" },
+        },
+      ],
+    });
+    expect(snapshot.agents[0].effort).toBe("high");
+    expect(snapshot.agents[1].effort).toBe("xhigh");
   });
 
   it("returns empty sections for a missing snapshot", () => {

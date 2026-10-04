@@ -54,6 +54,7 @@ export type LiveAgent = {
   cwd: string;
   terminalTitle: string;
   model: string | null;
+  effort: string | null;
   topic: string | null;
   focused: boolean;
 };

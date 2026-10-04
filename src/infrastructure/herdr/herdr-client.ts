@@ -18,6 +18,8 @@ export interface HerdrAgentState {
   terminalTitle: string;
   /** Best-effort live model (e.g. "Claude/Sonnet 5.5"); SQLite owns the assignment. */
   model: string | null;
+  /** Best-effort live reasoning effort (e.g. "high", "medium"); falls back to SQLite tasks.effort when null. */
+  effort: string | null;
   /** Herdr's current topic for the agent (its last line of conversation). */
   topic: string | null;
   focused: boolean;
@@ -149,6 +151,7 @@ export function parseSnapshot(raw: RawSnapshot): HerdrSnapshot {
       cwd: String(agent.cwd ?? ""),
       terminalTitle: String(agent.terminal_title_stripped ?? agent.terminal_title ?? ""),
       model: modelOf(agent.tokens),
+      effort: effortOf(agent.tokens),
       topic: topicOf(agent.tokens),
       focused: Boolean(agent.focused),
     };
@@ -174,6 +177,18 @@ function modelOf(tokens: unknown): string | null {
   const record = tokens as Record<string, unknown>;
   const value = record.quota_provider_model ?? record.quota_model;
   return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/**
+ * Extracts live reasoning effort from agent tokens (quota_effort, effort, etc.).
+ * If Herdr tokens do not contain an effort field, returns null and consumers fall
+ * back to the stored tasks.effort from SQLite.
+ */
+function effortOf(tokens: unknown): string | null {
+  if (!tokens || typeof tokens !== "object") return null;
+  const record = tokens as Record<string, unknown>;
+  const value = record.quota_effort ?? record.effort;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
 function topicOf(tokens: unknown): string | null {

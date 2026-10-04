@@ -1,5 +1,6 @@
 "use client";
 
+import { Cpu } from "lucide-react";
 import { useDrag } from "react-dnd";
 
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,11 @@ export function TaskCard({
     [task.id],
   );
 
+  const isAgent = task.assignee === "agent" || Boolean(task.agentName) || Boolean(liveAgent);
+  const activeModel = liveAgent?.model ?? task.model;
+  const activeEffort = liveAgent?.effort ?? task.effort;
+  const modelEffort = [activeModel, activeEffort].filter(Boolean).join(" · ");
+
   return (
     <button
       ref={dndRef<HTMLButtonElement>(drag)}
@@ -94,7 +100,17 @@ export function TaskCard({
             {projectName}
           </Badge>
         ) : null}
-        <AssigneeChip task={task} />
+        <AssigneeChip task={task} showDetails={false} />
+        {isAgent && modelEffort ? (
+          <Badge
+            variant="outline"
+            className="max-w-[170px] truncate text-[10px] font-normal text-muted-foreground/90 border-border/70 bg-muted/30 gap-1 px-1.5 py-0.5"
+            title={modelEffort}
+          >
+            <Cpu className="size-2.5 shrink-0" />
+            <span className="truncate">{modelEffort}</span>
+          </Badge>
+        ) : null}
         {liveAgent ? (
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             <span className={cn("size-1.5 rounded-full", AGENT_STATUS_DOT[liveAgent.status])} />

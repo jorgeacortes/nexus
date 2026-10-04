@@ -16,6 +16,7 @@ function agent(overrides: Partial<LiveAgent> = {}): LiveAgent {
     cwd: "/home/sandbox/ws/biznagatec-ws/nexus",
     terminalTitle: "π - nexus",
     model: null,
+    effort: null,
     topic: null,
     focused: false,
     ...overrides,

@@ -16,6 +16,7 @@ export type LiveAgent = {
   cwd: string;
   terminalTitle: string;
   model: string | null;
+  effort: string | null;
   /** Herdr's current topic for the agent — good enough for the board's TOPIC column. */
   topic: string | null;
   focused: boolean;
@@ -54,6 +55,7 @@ export function toLiveAgents(snapshot: HerdrSnapshot): LiveAgentsPayload {
       cwd: agent.cwd,
       terminalTitle: agent.terminalTitle,
       model: agent.model,
+      effort: agent.effort,
       topic: agent.topic,
       focused: agent.focused,
     })),
