@@ -5,6 +5,12 @@
 # The Herdr socket is mounted read-only from the host config directory so the
 # agents screens work inside the container. Override HERDR_CONFIG_DIR if Herdr
 # keeps its socket somewhere else.
+#
+# The Servers screen needs the host's procfs: `pid: host` makes /proc the host's
+# (PID 1's network namespace holds the host listening sockets), and the two
+# capabilities let the collector name the process owning a socket. Without them
+# the screen still lists ports, with the process column empty. See AGENTS.md →
+# "Host listeners".
 
 name: nexus
 
@@ -17,6 +23,16 @@ services:
     init: true
     restart: unless-stopped
     stop_grace_period: 20s
+    pid: host
+    # SYS_PTRACE: the ptrace check on /proc/<pid>/fd/<n>; DAC_OVERRIDE: listing
+    # another user's fd directory. apparmor=unconfined: the default profile
+    # forbids cross-profile ptrace. The entrypoint re-grants the first two as
+    # ambient capabilities to the unprivileged app user (see docker-entrypoint.sh).
+    cap_add:
+      - SYS_PTRACE
+      - DAC_OVERRIDE
+    security_opt:
+      - apparmor=unconfined
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${HOST_PORT:-3210}:3100"
     volumes:
@@ -28,6 +44,8 @@ services:
       - PUID=${DOCKER_UID:-1000}
       - PGID=${DOCKER_GID:-1000}
       - HERDR_SOCKET=/herdr/herdr.sock
+      # The published port, so the Servers screen can mark its own row.
+      - HOST_PORT=${HOST_PORT:-3210}
     healthcheck:
       test:
         [

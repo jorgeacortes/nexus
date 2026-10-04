@@ -19,7 +19,18 @@ if [ "$(id -u)" = "0" ]; then
   usermod -o -u "$PUID" -g "$PGID" node >/dev/null
 
   chown -R node:node /app/data /app/.next/cache
-  exec gosu node "$@"
+
+  # Drop root, but keep two capabilities the Servers screen needs to name the
+  # owner of a listening socket on the host: CAP_SYS_PTRACE (the ptrace check on
+  # /proc/<pid>/fd/<n>) and CAP_DAC_OVERRIDE (listing another user's fd dir).
+  # Ambient capabilities survive the uid switch, so the app itself still runs as
+  # PUID:PGID and the SQLite files stay host-owned. Without them the screen
+  # still lists ports, with the process and pid columns empty.
+  exec setpriv \
+    --reuid="$PUID" --regid="$PGID" --init-groups \
+    --inh-caps=+sys_ptrace,+dac_override \
+    --ambient-caps=+sys_ptrace,+dac_override \
+    "$@"
 fi
 
 exec "$@"

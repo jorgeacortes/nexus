@@ -7,6 +7,12 @@ import { db } from "@/infrastructure/db/nexus/db";
 import { HerdrClient, type HerdrPort } from "@/infrastructure/herdr/herdr-client";
 import { DrizzleProjectRepository } from "@/infrastructure/repositories/projects/drizzle-project.repository";
 import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizzle-task.repository";
+import {
+  type NexusPorts,
+  ProcfsServerCollector,
+  resolveNexusPorts,
+  type ServerCollectorPort,
+} from "@/infrastructure/servers/server-collector";
 
 /**
  * Composition root: the only place that wires contexts together. Routes and
@@ -15,6 +21,10 @@ import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizz
 export const projectRepo: ProjectRepository = new DrizzleProjectRepository(db);
 export const taskRepo: TaskRepository = new DrizzleTaskRepository(db);
 export const herdrClient: HerdrPort = new HerdrClient();
+export const serverCollector: ServerCollectorPort = new ProcfsServerCollector();
+
+/** The ports Nexus itself answers on, so the Servers screen can mark its own rows. */
+export const nexusPorts: NexusPorts = resolveNexusPorts();
 
 /** Adapts the projects repository to the lookup port the tasks context declares. */
 export const projectReference: ProjectReferencePort = {

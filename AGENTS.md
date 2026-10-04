@@ -55,6 +55,38 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 - Herdr sees terminal harnesses (pi, Claude Code) but not Cursor. SQLite owns assignments (harness/model/effort); Herdr owns live status. The Kanban UI composes both.
 - Agent identity (`agent_name` + `harness`) is resolved from the live snapshot when a task is claimed or dispatched (`agentIdentityForPane` in `src/domain/tasks/live-agents.ts`): the pane's agent kind, never its Herdr tab id. Herdr being unavailable leaves both null (the chip falls back to "Agent") and never fails a claim. That resolver is the only writer of these fields on the claim/dispatch paths.
 
+## Host listeners (Servers screen)
+
+- The **Servers** screen (`src/app/(main)/servers/`) lists what is listening on the
+  host — port, protocol, bind address (loopback vs all interfaces), owning
+  process/PID/uid, and uptime — and never writes. It polls `/api/servers` every
+  5s, the same cadence as the Herdr snapshot, so a service that stops disappears
+  on the next tick.
+- **Decision: the app reads the host's `/proc` directly; there is no sidecar
+  collector.** The Compose service runs with `pid: host`, so `/proc` is the host's
+  procfs and `/proc/1/net/{tcp,tcp6,udp,udp6}` is the host's network namespace
+  (the container's own `/proc/net` only holds the container). `docker-entrypoint.sh`
+  drops privileges with `setpriv` and hands the unprivileged app user two ambient
+  capabilities — `CAP_SYS_PTRACE` (the ptrace check on `/proc/<pid>/fd/<n>`) and
+  `CAP_DAC_OVERRIDE` (listing another user's fd directory) — which is what lets
+  the collector match a socket inode to the process holding it; `apparmor=unconfined`
+  is required because the default profile forbids cross-profile ptrace. Without
+  any of this the list still renders with the process/PID columns empty. Rejected:
+  a host-side collector writing a snapshot file Nexus reads (a second long-running
+  process, and a stale file cannot be told apart from an empty host without extra
+  bookkeeping), and mounting host `/proc` without `pid: host` (the net tables would
+  belong to the container's network namespace).
+- Port: `ServerCollectorPort` in `src/infrastructure/servers/server-collector.ts`,
+  mirroring `HerdrPort`; the procfs adapter is
+  `src/infrastructure/servers/host-listeners.ts`, the read use case is
+  `src/application/servers/read-servers/`. Domain, application, and UI code never
+  read `/proc`.
+- A collector that cannot be read reports `available: false` with the reason and
+  is never rendered as "nothing is listening"; a failed poll keeps the last
+  snapshot and labels it. Rows are marked when their port is `HOST_PORT` (the
+  deployed board) or `PORT` (dev), and the list is filterable by port, process,
+  pid, or address.
+
 ## Code conventions
 
 - TypeScript strict mode; no `any`.

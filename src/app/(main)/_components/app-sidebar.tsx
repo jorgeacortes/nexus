@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Columns3, FolderKanban, Inbox, type LucideIcon } from "lucide-react";
+import { Bot, Columns3, FolderKanban, Inbox, type LucideIcon, Network } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -13,6 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/board", label: "Board", hint: "One kanban", icon: Columns3 },
   { href: "/inbox", label: "Inbox", hint: "Needs you", icon: Inbox },
   { href: "/agents", label: "Agents", hint: "Live status", icon: Bot },
+  { href: "/servers", label: "Servers", hint: "Listening ports", icon: Network },
   { href: "/projects", label: "Projects", hint: "Folders", icon: FolderKanban },
 ];
 

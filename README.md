@@ -9,6 +9,11 @@ kanban board.
   *whose court is the ball in?*
 - **Agents** — live status from the Herdr socket, composed with the SQLite
   assignment (harness → model → effort). Cursor tasks show stored state only.
+- **Servers** — what is listening on the host: port, protocol, bind address
+  (loopback vs all interfaces), owning process/PID, and uptime, read from the
+  host's procfs and refreshed every 5 seconds. Nexus' own ports are marked, the
+  list is filterable by port, process, pid, or address, and a service that stops
+  drops off on the next tick.
 - **Inbox** — tasks awaiting you, agent-blocked suggestions, and a no-project
   triage list. Terminal harnesses can be unblocked with an `agent.prompt`.
 - **`nx` CLI** — create, claim, and complete tasks from any Herdr pane or from
@@ -160,6 +165,14 @@ BIND_ADDRESS=127.0.0.1 pnpm docker:up  # bind loopback only
 - The host Herdr socket directory (`~/.config/herdr`, override with
   `HERDR_CONFIG_DIR`) is mounted read-only at `/herdr` and `HERDR_SOCKET` points
   the app at it.
+- The container runs with `pid: host` and a minimal capability set
+  (`SYS_PTRACE`, `DAC_OVERRIDE`, `apparmor=unconfined`) so the **Servers** screen
+  can read the host's listening sockets from `/proc` and name the owning process
+  (the container's own `/proc/net` only shows the container). The entrypoint
+  re-grants the two capabilities as ambient ones to the unprivileged app user, so
+  the SQLite files stay host-owned. Drop the `cap_add`/`security_opt` lines and
+  the screen still works, with the process/PID columns empty. See `AGENTS.md` →
+  "Host listeners".
 
 ## Herdr
 

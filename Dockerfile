@@ -54,9 +54,11 @@ FROM node:${NODE_VERSION} AS runner
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates gosu \
+  && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
-  && gosu nobody true
+  # The entrypoint drops privileges with setpriv (util-linux, part of the base
+  # image) so it can hand the app ambient capabilities; assert it is there.
+  && setpriv --version >/dev/null
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -79,7 +81,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
   && chmod a+rX /app
 
 # World-readable app files so an arbitrary host UID can run the process; the
-# entrypoint drops privileges to PUID:PGID and owns only /app/data + cache.
+# entrypoint drops privileges to PUID:PGID with setpriv and owns only
+# /app/data + cache.
 EXPOSE 3100
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
