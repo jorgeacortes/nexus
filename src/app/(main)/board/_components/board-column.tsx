@@ -5,6 +5,7 @@ import { useDrop } from "react-dnd";
 import type { TaskStatus } from "@/domain/tasks/task";
 import { dndRef } from "@/lib/dnd";
 import type { TaskDto } from "@/lib/dto";
+import type { LiveAgent } from "@/lib/herdr";
 import { cn } from "@/lib/utils";
 
 import { COLUMN_META } from "./board-meta";
@@ -15,12 +16,14 @@ export function BoardColumn({
   status,
   tasks,
   projectNames,
+  liveByPaneId,
   onDropTask,
   onSelectTask,
 }: {
   status: TaskStatus;
   tasks: TaskDto[];
   projectNames: Map<string, string>;
+  liveByPaneId: Map<string, LiveAgent>;
   onDropTask: (taskId: string, status: TaskStatus) => void;
   onSelectTask: (id: string) => void;
 }) {
@@ -52,6 +55,7 @@ export function BoardColumn({
             key={task.id}
             task={task}
             projectName={task.projectId ? projectNames.get(task.projectId) : undefined}
+            liveAgent={task.herdrPaneId ? liveByPaneId.get(task.herdrPaneId) : undefined}
             onSelect={onSelectTask}
           />
         ))}

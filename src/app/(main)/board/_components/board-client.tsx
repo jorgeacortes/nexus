@@ -7,8 +7,11 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { toast } from "sonner";
 
 import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
+import { useLiveAgents } from "@/hooks/use-live-agents";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
+import type { LiveAgent, LiveAgentsPayload } from "@/lib/herdr";
+import { cn } from "@/lib/utils";
 
 import { PageHeader } from "../../_components/page-header";
 import { BoardColumn } from "./board-column";
@@ -17,18 +20,29 @@ import { TaskDetailSheet } from "./task-detail-sheet";
 
 /**
  * The single kanban board. Drag-and-drop PATCHes the task status; the project
- * stays a tag on the card. Tasks are composed here, live agent status is layered
- * on later (Phase 3).
+ * stays a tag on the card. Cards compose SQLite tasks with live Herdr status by
+ * `herdr_pane_id` (polled).
  */
 export function BoardClient({
   initialTasks,
   initialProjects,
+  initialLive,
 }: {
   initialTasks: TaskDto[];
   initialProjects: ProjectDto[];
+  initialLive: LiveAgentsPayload;
 }) {
   const [tasks, setTasks] = useState<TaskDto[]>(initialTasks);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const live = useLiveAgents(initialLive);
+
+  const liveByPaneId = useMemo(() => {
+    const map = new Map<string, LiveAgent>();
+    for (const agent of live.agents) {
+      if (agent.paneId) map.set(agent.paneId, agent);
+    }
+    return map;
+  }, [live.agents]);
 
   const projectNames = useMemo(
     () => new Map(initialProjects.map((project) => [project.id, project.name])),
@@ -74,7 +88,15 @@ export function BoardClient({
         title="Board"
         description="One board for every project — the project is a tag on the card."
         actions={
-          <CreateTaskDialog projects={initialProjects} onCreated={(task) => setTasks((list) => [task, ...list])} />
+          <div className="flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
+              <span
+                className={cn("size-2 rounded-full", live.available ? "bg-emerald-500" : "bg-muted-foreground/40")}
+              />
+              {live.available ? `${live.agents.length} live agents` : "Herdr unavailable"}
+            </span>
+            <CreateTaskDialog projects={initialProjects} onCreated={(task) => setTasks((list) => [task, ...list])} />
+          </div>
         }
       />
       <DndProvider backend={HTML5Backend}>
@@ -85,6 +107,7 @@ export function BoardClient({
               status={status}
               tasks={byStatus.get(status) ?? []}
               projectNames={projectNames}
+              liveByPaneId={liveByPaneId}
               onDropTask={moveTask}
               onSelectTask={setSelectedId}
             />

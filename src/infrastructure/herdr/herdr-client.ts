@@ -1,20 +1,48 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-/** Live agent/pane state as reported by `herdr api snapshot`. */
+export type HerdrAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
+
+/** Live agent/pane state as reported by the Herdr session snapshot. */
 export interface HerdrAgentState {
   agent: string;
-  agentStatus: "idle" | "working" | "blocked" | "done" | "unknown";
+  agentStatus: HerdrAgentStatus;
   paneId: string;
   tabId: string;
   workspaceId: string;
+  workspaceLabel: string;
+  tabLabel: string;
   cwd: string;
   terminalTitle: string;
+  /** Best-effort live model (e.g. "Claude/Sonnet 5.5"); SQLite owns the assignment. */
+  model: string | null;
+  focused: boolean;
+}
+
+export interface HerdrWorkspaceState {
+  workspaceId: string;
+  label: string;
+  agentStatus: string;
+  tabCount: number;
+  paneCount: number;
+}
+
+export interface HerdrTabState {
+  tabId: string;
+  workspaceId: string;
+  label: string;
+  agentStatus: string;
 }
 
 export interface HerdrSnapshot {
   agents: HerdrAgentState[];
-  workspaces: Array<{ workspaceId: string }>;
-  tabs: Array<{ tabId: string; workspaceId: string; label: string; agentStatus: string }>;
+  workspaces: HerdrWorkspaceState[];
+  tabs: HerdrTabState[];
+  focusedWorkspaceId: string | null;
+  focusedTabId: string | null;
+  focusedPaneId: string | null;
 }
 
 /** Port: how Nexus talks to Herdr. Adapters implement this; domain code never touches sockets. */
@@ -27,10 +55,35 @@ export interface HerdrPort {
 
 type HerdrResponse = { result?: unknown; error?: { message?: string } };
 
+type RawSnapshot = {
+  agents?: Array<Record<string, unknown>>;
+  workspaces?: Array<Record<string, unknown>>;
+  tabs?: Array<Record<string, unknown>>;
+  focused_workspace_id?: unknown;
+  focused_tab_id?: unknown;
+  focused_pane_id?: unknown;
+};
+
+/**
+ * Where the Herdr JSON-RPC socket lives. `HERDR_SOCKET` (explicit override) wins,
+ * then Herdr's own `HERDR_SOCKET_PATH`, then the default config location. The
+ * Docker image mounts `~/.config/herdr` and sets `HERDR_SOCKET` at it.
+ */
+export function resolveHerdrSocketPath(env: NodeJS.Dict<string> = process.env): string {
+  const configured = env.HERDR_SOCKET?.trim() || env.HERDR_SOCKET_PATH?.trim();
+  if (configured) return configured;
+  const candidates = [join(homedir(), ".config", "herdr", "herdr.sock"), join(homedir(), ".herdr", "herdr.sock")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
 /** Runs a request against the Herdr API socket and returns the parsed response. */
-export async function herdrRequest(method: string, params?: Record<string, unknown>): Promise<HerdrResponse> {
+export async function herdrRequest(
+  method: string,
+  params?: Record<string, unknown>,
+  env: NodeJS.Dict<string> = process.env,
+): Promise<HerdrResponse> {
   const { default: net } = await import("node:net");
-  const socketPath = process.env.HERDR_SOCKET ?? `${process.env.HOME}/.herdr/herdr.sock`;
+  const socketPath = resolveHerdrSocketPath(env);
   const payload = JSON.stringify({ id: `nexus:${method}:${Date.now()}`, method, params: params ?? {} });
 
   return new Promise((resolve, reject) => {
@@ -61,45 +114,91 @@ export async function herdrRequest(method: string, params?: Record<string, unkno
 }
 
 /** Maps the raw snapshot JSON into the shapes Nexus needs. */
-export function parseSnapshot(raw: {
-  agents?: Array<Record<string, unknown>>;
-  workspaces?: Array<Record<string, unknown>>;
-  tabs?: Array<Record<string, unknown>>;
-}): HerdrSnapshot {
-  return {
-    agents: (raw.agents ?? []).map((agent) => ({
+export function parseSnapshot(raw: RawSnapshot): HerdrSnapshot {
+  const workspaces: HerdrWorkspaceState[] = (raw.workspaces ?? []).map((workspace) => ({
+    workspaceId: String(workspace.workspace_id ?? ""),
+    label: String(workspace.label ?? ""),
+    agentStatus: String(workspace.agent_status ?? "unknown"),
+    tabCount: Number(workspace.tab_count ?? 0),
+    paneCount: Number(workspace.pane_count ?? 0),
+  }));
+
+  const tabs: HerdrTabState[] = (raw.tabs ?? []).map((tab) => ({
+    tabId: String(tab.tab_id ?? ""),
+    workspaceId: String(tab.workspace_id ?? ""),
+    label: String(tab.label ?? ""),
+    agentStatus: String(tab.agent_status ?? "unknown"),
+  }));
+
+  const workspaceLabels = new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace.label]));
+  const tabLabels = new Map(tabs.map((tab) => [tab.tabId, tab.label]));
+
+  const agents: HerdrAgentState[] = (raw.agents ?? []).map((agent) => {
+    const workspaceId = String(agent.workspace_id ?? "");
+    const tabId = String(agent.tab_id ?? "");
+    return {
       agent: String(agent.agent ?? "unknown"),
       agentStatus: normalizeStatus(agent.agent_status),
       paneId: String(agent.pane_id ?? ""),
-      tabId: String(agent.tab_id ?? ""),
-      workspaceId: String(agent.workspace_id ?? ""),
+      tabId,
+      workspaceId,
+      workspaceLabel: workspaceLabels.get(workspaceId) ?? "",
+      tabLabel: tabLabels.get(tabId) ?? "",
       cwd: String(agent.cwd ?? ""),
       terminalTitle: String(agent.terminal_title_stripped ?? agent.terminal_title ?? ""),
-    })),
-    workspaces: (raw.workspaces ?? []).map((workspace) => ({ workspaceId: String(workspace.workspace_id ?? "") })),
-    tabs: (raw.tabs ?? []).map((tab) => ({
-      tabId: String(tab.tab_id ?? ""),
-      workspaceId: String(tab.workspace_id ?? ""),
-      label: String(tab.label ?? ""),
-      agentStatus: String(tab.agent_status ?? "unknown"),
-    })),
+      model: modelOf(agent.tokens),
+      focused: Boolean(agent.focused),
+    };
+  });
+
+  return {
+    agents,
+    workspaces,
+    tabs,
+    focusedWorkspaceId: stringOrNull(raw.focused_workspace_id),
+    focusedTabId: stringOrNull(raw.focused_tab_id),
+    focusedPaneId: stringOrNull(raw.focused_pane_id),
   };
 }
 
-function normalizeStatus(value: unknown): HerdrAgentState["agentStatus"] {
+function normalizeStatus(value: unknown): HerdrAgentStatus {
   const status = String(value ?? "unknown");
   return status === "idle" || status === "working" || status === "blocked" || status === "done" ? status : "unknown";
 }
 
+function modelOf(tokens: unknown): string | null {
+  if (!tokens || typeof tokens !== "object") return null;
+  const record = tokens as Record<string, unknown>;
+  const value = record.quota_provider_model ?? record.quota_model;
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
 /**
- * Adapter: Herdr CLI/socket. `herdr api snapshot` is the stable read path;
- * the socket is used for prompting agents.
+ * Adapter: Herdr socket + CLI. Reads prefer the socket (`session.snapshot`) so
+ * the container needs no Herdr binary; the CLI is a fallback. `agent.prompt`
+ * goes over the socket.
  */
 export class HerdrClient implements HerdrPort {
   async snapshot(): Promise<HerdrSnapshot> {
-    const raw = await this.runCli(["api", "snapshot"]);
-    const payload = (raw as { result?: { snapshot?: unknown } }).result?.snapshot ?? {};
-    return parseSnapshot(payload as Parameters<typeof parseSnapshot>[0]);
+    try {
+      const response = await herdrRequest("session.snapshot");
+      if (response.error) {
+        throw new Error(response.error.message ?? "herdr session.snapshot failed");
+      }
+      // Both the socket and the CLI wrap the snapshot: `result.snapshot`.
+      const payload = (response.result as { snapshot?: RawSnapshot } | undefined)?.snapshot ?? {};
+      return parseSnapshot(payload);
+    } catch (socketError) {
+      const raw = await this.runCli(["api", "snapshot"]).catch(() => {
+        throw socketError instanceof Error ? socketError : new Error("herdr snapshot failed");
+      });
+      const payload = (raw as { result?: { snapshot?: unknown } }).result?.snapshot ?? {};
+      return parseSnapshot(payload as RawSnapshot);
+    }
   }
 
   async prompt(target: string, text: string, options?: { timeoutMs?: number; until?: string[] }): Promise<void> {

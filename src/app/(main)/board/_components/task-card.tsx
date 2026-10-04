@@ -5,6 +5,7 @@ import { useDrag } from "react-dnd";
 import { Badge } from "@/components/ui/badge";
 import { dndRef } from "@/lib/dnd";
 import type { TaskDto } from "@/lib/dto";
+import { AGENT_STATUS_DOT, AGENT_STATUS_LABELS, type LiveAgent } from "@/lib/herdr";
 import { cn } from "@/lib/utils";
 
 import { AssigneeChip } from "./assignee-chip";
@@ -16,10 +17,12 @@ export const TASK_DRAG_TYPE = "nexus-task";
 export function TaskCard({
   task,
   projectName,
+  liveAgent,
   onSelect,
 }: {
   task: TaskDto;
   projectName?: string;
+  liveAgent?: LiveAgent;
   onSelect: (id: string) => void;
 }) {
   const [{ isDragging }, drag] = useDrag(
@@ -58,6 +61,14 @@ export function TaskCard({
           </Badge>
         ) : null}
         <AssigneeChip task={task} />
+        {liveAgent ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className={cn("size-1.5 rounded-full", AGENT_STATUS_DOT[liveAgent.status])} />
+            {AGENT_STATUS_LABELS[liveAgent.status]}
+          </span>
+        ) : task.herdrPaneId ? (
+          <span className="text-[11px] text-muted-foreground/70">pane offline</span>
+        ) : null}
       </div>
     </button>
   );
