@@ -101,6 +101,15 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 
 - TypeScript strict mode; no `any`.
 - Biome: double quotes, semicolons, two-space indentation, sorted imports.
+- Clipboard writes go through `copyText` (`src/lib/clipboard.ts`) and the shared
+  `CopyButton` (`src/components/copy-button.tsx`). The deployed board is plain
+  `http` off localhost, where `navigator.clipboard` does not exist, so the helper
+  falls back to a hidden textarea + `execCommand` — parked inside the open dialog
+  when there is one, because a Radix modal's focus trap drops the selection of a
+  textarea on `<body>` and the command then reports success without writing — and
+  returns whether the copy landed; a copy control must show success in place and
+  report a failure instead of failing silently. Task ids are copied whole (a full
+  uuid), never abbreviated.
 - Run `pnpm validate` after making changes — it is the gate for every change.
 - Deployment is Docker Compose only (`Dockerfile` + `docker-compose.yml` + `docker-entrypoint.sh`, modeled on the CRM webapp). See `PLAN.md` Phase 5.
 

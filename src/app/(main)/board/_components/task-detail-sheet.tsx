@@ -4,6 +4,7 @@ import { CircleAlert, Trash2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -121,6 +122,27 @@ export function TaskDetailSheet({
               </Button>
             </div>
           ) : null}
+
+          <div className="space-y-1.5">
+            {/* Not a <Label>: a <code> is not labelable, so the heading is plain text. */}
+            <p className="text-sm leading-none font-medium select-none">Task ID</p>
+            <div className="flex items-center gap-2">
+              <code
+                id="detail-id"
+                className="min-w-0 flex-1 select-all break-all rounded-md border border-border bg-muted/40 px-2 py-1.5 font-mono text-xs leading-relaxed text-muted-foreground"
+              >
+                {task?.id}
+              </code>
+              <CopyButton
+                value={task?.id ?? ""}
+                label="Copy"
+                variant="outline"
+                size="sm"
+                title="Copy task ID"
+                toastMessage="Task ID copied"
+              />
+            </div>
+          </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="detail-title">Title</Label>

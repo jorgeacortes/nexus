@@ -4,6 +4,7 @@ import { CircleAlert, MessageSquare, Send, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -254,6 +255,7 @@ function TaskRow({
               {AGENT_STATUS_LABELS[liveAgent.status]}
             </span>
           ) : null}
+          <CopyButton value={task.id} size="icon-xs" title="Copy task ID" toastMessage="Task ID copied" />
         </div>
         {task.needsHuman && task.needsHumanReason ? (
           <p className="mt-1.5 text-xs text-muted-foreground">{task.needsHumanReason}</p>
