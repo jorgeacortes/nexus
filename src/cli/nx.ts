@@ -361,7 +361,22 @@ async function boardCommand(argv: string[]): Promise<void> {
   }
 }
 
-const BOARD_HELP = `  nx board [--watch [seconds]]  live join of tasks and Herdr agents (default 10s)`;
+async function assignCommand(argv: string[]): Promise<void> {
+  const { positionals, flags } = parseArgs(argv);
+  const task = resolveTask(positionals[0], await listTasks());
+  const to = flagValue(flags, "to");
+  if (!to) throw new CliError("Usage: nx assign <id> --to <pane-id|auto>");
+  const dispatched = await request<Task>(`/api/tasks/${task.id}/dispatch`, {
+    method: "POST",
+    body: to === "auto" ? { target: "auto" } : { paneId: to },
+  });
+  output(flags, dispatched, () => {
+    const agent = dispatched.agentName ? ` (${dispatched.agentName})` : "";
+    console.log(
+      `Dispatched #${shortId(dispatched.id)} ${dispatched.title} → pane ${orDash(dispatched.herdrPaneId)}${agent}`,
+    );
+  });
+}
 
 function usage(): void {
   console.log(`nx — talk to Nexus over HTTP (NEXUS_URL, default ${DEFAULT_URL})
@@ -374,7 +389,8 @@ function usage(): void {
   nx claim <id>                  claim for this Herdr pane ($HERDR_PANE_ID)
   nx done <id> [--notes <text>]  complete the task
   nx need <id> [--reason <t>]    flag the task as needing the operator
-${BOARD_HELP}
+  nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
+  nx assign <id> --to <pane|auto>  push the task's prompt into a Herdr pane
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.`);
 }
@@ -406,6 +422,9 @@ async function main(): Promise<void> {
       return;
     case "board":
       await boardCommand(rest);
+      return;
+    case "assign":
+      await assignCommand(rest);
       return;
     default:
       throw new CliError(`Unknown command "${command}". Run \`nx help\`.`);

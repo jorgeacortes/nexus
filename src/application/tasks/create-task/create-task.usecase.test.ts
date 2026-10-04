@@ -7,7 +7,10 @@ import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizz
 import { createTestDb } from "@/test-support/db";
 
 function projectsWith(ids: string[]): ProjectReferencePort {
-  return { exists: async (id) => ids.includes(id) };
+  return {
+    exists: async (id) => ids.includes(id),
+    find: async (id) => (ids.includes(id) ? { id, name: id, folderPath: null } : null),
+  };
 }
 
 describe("CreateTaskUseCase", () => {

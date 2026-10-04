@@ -49,6 +49,7 @@ nx task show <id>
 nx claim <id>                   # this Herdr pane claims the task
 nx done <id> --notes "commit abc123"
 nx need <id> --reason "waiting on the Stripe key"
+nx assign <id> --to auto      # push the task's prompt into an idle pane
 nx board --watch
 ```
 
@@ -81,6 +82,22 @@ nx board --watch
 
 `$HERDR_PANE_ID` inside that pane belongs to the board, not to an agent, so the
 board will not try to claim work for it.
+
+### `nx assign` — the declarative push
+
+`nx assign <id> --to <pane-id>` injects a short instruction into that Herdr pane
+(through `agent.prompt`, server-side): claim the task, work it, complete it. The
+task immediately records the pane and agent as its assignment pointers, so the
+board reflects it on the next frame.
+
+```bash
+nx assign 42 --to wP:p4   # a specific pane always wins
+nx assign 42 --to auto    # idle pane whose cwd is inside the task's project folder
+```
+
+`auto` never crosses projects: with no idle agent under the project folder it
+exits non-zero with the folder it looked in. There is no dispatcher daemon —
+this is the only push, and it is manual.
 
 ## Deployment (Docker Compose)
 
