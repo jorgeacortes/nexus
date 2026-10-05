@@ -69,6 +69,13 @@ application layer**, where it can read task state and be unit-tested.
   `started_at`, `ended_at`, `outcome`. This buys (a) idempotency — the lease stops
   two racing dispatches from spawning two agents for one task, (b) the tab → task
   join the close guard wants, (c) history.
+  **Lease semantics as implemented (DSP-4):** `lease_until` bounds only an attempt
+  that has not yet started an agent; once `started_at` is set the open row holds
+  the lease until an outcome ends it (`failed` / `expired` / `closed` / `lost`).
+  A partial unique index (`dispatches_open_task_idx` on `task_id WHERE ended_at IS
+  NULL`) enforces one open dispatch per task in the database, so the check and the
+  insert cannot race even across processes. A crashed attempt that never started
+  an agent is superseded as `expired` once its lease lapses.
 
 ## 3. Flows
 

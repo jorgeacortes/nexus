@@ -75,7 +75,28 @@ export interface HerdrPort {
   prompt(target: string, text: string, options?: { timeoutMs?: number; until?: string[] }): Promise<void>;
 }
 
-type HerdrResponse = { result?: unknown; error?: { message?: string } };
+type HerdrResponse = { result?: unknown; error?: { code?: string; message?: string } };
+
+/** A JSON-RPC error from Herdr, carrying its machine-readable `code`. */
+class HerdrApiError extends Error {
+  constructor(
+    readonly code: string | undefined,
+    message: string,
+  ) {
+    super(message);
+    this.name = "HerdrApiError";
+  }
+}
+
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+/** True while Herdr still reports a freshly created pane as not an available shell. */
+function isPaneUnavailable(error: unknown): boolean {
+  if (error instanceof HerdrApiError) {
+    return error.code === "agent_pane_busy" || error.code === "agent_pane_unavailable";
+  }
+  return error instanceof Error && /not an available shell/i.test(error.message);
+}
 
 /**
  * One JSON-RPC round-trip against the Herdr socket. Injectable so the topology
@@ -110,6 +131,7 @@ export async function herdrRequest(
   method: string,
   params?: Record<string, unknown>,
   env: NodeJS.Dict<string> = process.env,
+  timeoutMs = 10_000,
 ): Promise<HerdrResponse> {
   const { default: net } = await import("node:net");
   const socketPath = resolveHerdrSocketPath(env);
@@ -121,7 +143,7 @@ export async function herdrRequest(
     const timeout = setTimeout(() => {
       socket.destroy();
       reject(new Error(`herdr socket timeout: ${method}`));
-    }, 10_000);
+    }, timeoutMs);
 
     socket.on("connect", () => socket.end(`${payload}\n`));
     socket.on("data", (chunk) => {
@@ -388,19 +410,65 @@ export class HerdrClient implements HerdrPort, HarnessPort {
     return { tab: toTab(resultRecord(result.tab)), rootPane: toPane(resultRecord(result.root_pane)) };
   }
 
-  async startAgent(name: string, kind: string, paneId: string): Promise<void> {
-    await this.call("agent.start", { name, kind, pane_id: paneId });
+  /**
+   * Starts an agent in an existing shell pane and waits until Herdr considers it
+   * interactive.
+   *
+   * Herdr's `agent.start` is two races in one: the freshly created pane is not yet
+   * an available shell (so `agent.start` can fail with `agent_pane_busy`), and the
+   * response returns as soon as the process is spawned — an agent that is not yet
+   * *interactive* is "not an active named agent", so an immediate `agent.prompt`
+   * is rejected. This mirrors the `herdr agent start` CLI: retry the start while
+   * the pane is unavailable, then poll `agent.get` until it reports
+   * `interactive_ready`, both bounded by `timeoutMs`.
+   *
+   * Deliberately no `timeout_ms` parameter: passing it to the socket method leaves
+   * the agent `launch_pending` forever (verified against protocol 22), while the
+   * omitted default completes readiness in a couple of seconds.
+   */
+  async startAgent(name: string, kind: string, paneId: string, options?: { timeoutMs?: number }): Promise<void> {
+    const timeoutMs = options?.timeoutMs ?? 30_000;
+    const deadline = Date.now() + timeoutMs;
+
+    for (;;) {
+      try {
+        await this.call("agent.start", { name, kind, pane_id: paneId });
+        break;
+      } catch (error) {
+        if (!isPaneUnavailable(error) || Date.now() >= deadline) {
+          throw error;
+        }
+        await sleep(250);
+      }
+    }
+
+    while (Date.now() < deadline) {
+      if (await this.isAgentInteractive(name)) return;
+      await sleep(250);
+    }
+    throw new Error(`herdr agent.start: agent ${name} did not become interactive within ${timeoutMs}ms`);
   }
 
   async closeTab(tabId: string): Promise<void> {
     await this.call("tab.close", { tab_id: tabId });
   }
 
+  /** Whether Herdr reports the named agent as interactive and ready for a prompt. */
+  private async isAgentInteractive(name: string): Promise<boolean> {
+    try {
+      const result = resultRecord(await this.call("agent.get", { target: name }));
+      return resultRecord(result.agent).interactive_ready === true;
+    } catch {
+      // Not an agent yet (or transiently gone): keep waiting until the deadline.
+      return false;
+    }
+  }
+
   /** One JSON-RPC request, unwrapped and error-checked. */
   private async call(method: string, params?: Record<string, unknown>): Promise<unknown> {
     const response = await this.request(method, params);
     if (response.error) {
-      throw new Error(response.error.message ?? `herdr ${method} failed`);
+      throw new HerdrApiError(response.error.code, response.error.message ?? `herdr ${method} failed`);
     }
     return response.result;
   }

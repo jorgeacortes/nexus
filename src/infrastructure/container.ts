@@ -1,5 +1,10 @@
+import { hostname } from "node:os";
+
+import { DispatchTaskUseCase } from "@/application/dispatch/dispatch-task";
+import { EnsureWorkspaceUseCase } from "@/application/dispatch/ensure-workspace";
+import type { DispatchRepository } from "@/domain/dispatch/dispatch.repository";
 import type { HarnessPort } from "@/domain/dispatch/harness";
-import type { ProjectWorkspacePort } from "@/domain/dispatch/project-workspace";
+import type { DispatchProjectPort, ProjectWorkspacePort } from "@/domain/dispatch/project-workspace";
 import type { ProjectRepository } from "@/domain/projects/project.repository";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import type { LiveAgentPort } from "@/domain/tasks/live-agents";
@@ -8,6 +13,7 @@ import type { TaskRepository } from "@/domain/tasks/task.repository";
 import { db } from "@/infrastructure/db/nexus/db";
 import { type ContainerInventoryPort, HttpContainerInventory } from "@/infrastructure/docker/container-inventory";
 import { HerdrClient } from "@/infrastructure/herdr/herdr-client";
+import { DrizzleDispatchRepository } from "@/infrastructure/repositories/dispatch/drizzle-dispatch.repository";
 import { DrizzleProjectRepository } from "@/infrastructure/repositories/projects/drizzle-project.repository";
 import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizzle-task.repository";
 import {
@@ -23,6 +29,7 @@ import {
  */
 export const projectRepo: ProjectRepository = new DrizzleProjectRepository(db);
 export const taskRepo: TaskRepository = new DrizzleTaskRepository(db);
+export const dispatchRepo: DispatchRepository = new DrizzleDispatchRepository(db);
 export const herdrClient: HerdrClient = new HerdrClient();
 export const serverCollector: ServerCollectorPort = new ProcfsServerCollector();
 export const containerInventory: ContainerInventoryPort = new HttpContainerInventory();
@@ -34,13 +41,25 @@ export const nexusPorts: NexusPorts = resolveNexusPorts();
 export const harness: HarnessPort = herdrClient;
 
 /**
- * Persists the workspace `ensureWorkspace` resolves or creates onto its project.
- * Routed through the same `ProjectRepository.update` the web PATCH uses, so the
+ * Persists the workspace `ensureWorkspace` resolves or creates onto its project,
+ * and reads a project as the dispatch context's narrow `DispatchProject`. Both
+ * funnel through the same `ProjectRepository` the web PATCH uses, so the
  * dispatcher's repair and `nx project edit --workspace` write identically.
  */
-export const projectWorkspace: ProjectWorkspacePort = {
+export const projectWorkspace: ProjectWorkspacePort & DispatchProjectPort = {
   setWorkspaceId: async (projectId, workspaceId) => {
     await projectRepo.update(projectId, { herdrWorkspaceId: workspaceId });
+  },
+  find: async (projectId) => {
+    const project = await projectRepo.findById(projectId);
+    return project
+      ? {
+          id: project.id,
+          name: project.name,
+          folderPath: project.folderPath,
+          herdrWorkspaceId: project.herdrWorkspaceId,
+        }
+      : null;
   },
 };
 
@@ -70,3 +89,17 @@ export const liveAgents: LiveAgentPort = {
       effort: agent.effort,
     })),
 };
+
+const ensureWorkspace = new EnsureWorkspaceUseCase(harness, projectWorkspace);
+
+/** The one-shot actuator `nx dispatch` and `POST /api/dispatch` call. No daemon. */
+export const dispatchTask = new DispatchTaskUseCase({
+  tasks: taskRepo,
+  dispatches: dispatchRepo,
+  harness,
+  projects: projectWorkspace,
+  ensureWorkspace,
+  agentPrompt,
+  liveAgents,
+  leaseOwner: `${hostname()}:${process.pid}`,
+});

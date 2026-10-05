@@ -42,6 +42,43 @@ export type Project = {
   createdAt: string;
 };
 
+/** One `dispatches` row as `POST /api/dispatch` returns it. */
+export type Dispatch = {
+  id: string;
+  taskId: string;
+  workspaceId: string | null;
+  tabId: string | null;
+  paneId: string | null;
+  agentName: string | null;
+  harness: string | null;
+  leaseOwner: string;
+  leaseUntil: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  outcome: string | null;
+  createdAt: string;
+};
+
+/** The live Herdr workspace a dispatch resolved or created. */
+export type HarnessWorkspace = {
+  workspaceId: string;
+  label: string;
+  tabCount: number;
+  paneCount: number;
+  agentStatus: string;
+  activeTabId: string | null;
+};
+
+/** `POST /api/dispatch` payload: the task, the ledger row and where it landed. */
+export type DispatchResult = {
+  task: Task;
+  dispatch: Dispatch;
+  workspace: HarnessWorkspace;
+  workspaceOutcome: string;
+  matchedBy: string | null;
+  placement: string;
+};
+
 /** Live agent row from `/api/herdr/snapshot` (Herdr state, never stored in SQLite). */
 export type LiveAgent = {
   paneId: string;

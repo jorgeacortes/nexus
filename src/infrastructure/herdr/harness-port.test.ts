@@ -197,11 +197,53 @@ describe("HerdrClient HarnessPort writes", () => {
     ]);
   });
 
-  it("starts an agent in an existing pane", async () => {
-    const { client, calls } = clientAnswering({ "agent.start": { type: "agent_started" } });
+  it("starts an agent in an existing pane, waiting until it is interactive", async () => {
+    const { client, calls } = clientAnswering({
+      "agent.start": { type: "agent_started" },
+      "agent.get": { type: "agent_info", agent: { interactive_ready: true } },
+    });
 
     await expect(client.startAgent("dsp-2-ab12cd", "pi", "wN:p1")).resolves.toBeUndefined();
-    expect(calls).toEqual([{ method: "agent.start", params: { name: "dsp-2-ab12cd", kind: "pi", pane_id: "wN:p1" } }]);
+    expect(calls).toEqual([
+      { method: "agent.start", params: { name: "dsp-2-ab12cd", kind: "pi", pane_id: "wN:p1" } },
+      { method: "agent.get", params: { target: "dsp-2-ab12cd" } },
+    ]);
+  });
+
+  it("retries the start while the fresh pane is not yet an available shell", async () => {
+    let attempts = 0;
+    const { client, calls } = clientWith(async (method) => {
+      if (method === "agent.start") {
+        attempts += 1;
+        return attempts === 1
+          ? { error: { code: "agent_pane_busy", message: "agent target pane wN:p1 is not an available shell" } }
+          : { result: { type: "agent_started" } };
+      }
+      return { result: { type: "agent_info", agent: { interactive_ready: true } } };
+    });
+
+    await expect(client.startAgent("dsp-2-ab12cd", "pi", "wN:p1")).resolves.toBeUndefined();
+    expect(calls.filter((call) => call.method === "agent.start")).toHaveLength(2);
+  });
+
+  it("polls agent.get until Herdr reports the agent interactive", async () => {
+    let polls = 0;
+    const { client, calls } = clientWith(async (method) => {
+      if (method === "agent.start") return { result: { type: "agent_started" } };
+      polls += 1;
+      return { result: { type: "agent_info", agent: { interactive_ready: polls >= 3 } } };
+    });
+
+    await expect(client.startAgent("dsp-2-ab12cd", "pi", "wN:p1", { timeoutMs: 5000 })).resolves.toBeUndefined();
+    expect(calls.filter((call) => call.method === "agent.get")).toHaveLength(3);
+  });
+
+  it("propagates a start refusal that is not a pane-availability race", async () => {
+    const { client } = clientWith(async () => ({
+      error: { code: "invalid_agent_name", message: "invalid agent name" },
+    }));
+
+    await expect(client.startAgent("BAD NAME", "pi", "wN:p1")).rejects.toThrow("invalid agent name");
   });
 
   it("closes a tab and surfaces a Herdr refusal as an error", async () => {

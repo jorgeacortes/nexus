@@ -33,7 +33,7 @@ import {
   resolveBoard,
 } from "./board-target";
 import { orDash, renderTable, shortId, terminalWidth } from "./format";
-import type { ApiEnvelope, LiveAgentsPayload, Project, Task } from "./types";
+import type { ApiEnvelope, DispatchResult, LiveAgentsPayload, Project, Task } from "./types";
 
 const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
@@ -714,6 +714,27 @@ async function assignCommand(argv: string[]): Promise<void> {
   });
 }
 
+/**
+ * `nx dispatch` — the full create flow: lease → ensure workspace → place → start
+ * agent → assign. Unlike `nx assign` it needs no pre-existing pane: it creates
+ * the workspace and tab the agent runs in. A second dispatch of the same task is
+ * refused by the lease.
+ */
+async function dispatchCommand(argv: string[]): Promise<void> {
+  const { positionals, flags } = parseArgs(argv);
+  const task = resolveTask(positionals[0], await listTasks());
+  const result = await request<DispatchResult>("/api/dispatch", { method: "POST", body: { taskId: task.id } });
+  output(flags, result, () => {
+    console.log(`Dispatched #${shortId(result.task.id)} ${result.task.title} (${result.placement})`);
+    console.log(`  workspace  ${result.workspace.workspaceId} ${result.workspace.label} · ${result.workspaceOutcome}`);
+    console.log(`  tab        ${orDash(result.dispatch.tabId)}`);
+    console.log(`  pane       ${orDash(result.dispatch.paneId)}`);
+    console.log(`  agent      ${orDash(result.dispatch.agentName)} · harness ${orDash(result.dispatch.harness)}`);
+    console.log(`  lease      ${result.dispatch.leaseOwner} until ${result.dispatch.leaseUntil}`);
+    console.log("  Nothing is closed automatically; the guarded close is a separate command.");
+  });
+}
+
 function usage(): void {
   console.log(`nx — talk to the Nexus board over HTTP
 
@@ -731,7 +752,8 @@ function usage(): void {
   nx need <id> [--reason <t>]    flag the task as needing the operator
   nx review <id> [--undo]        record the OPERATOR's verification of a done task (or clear it)
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
-  nx assign <id> --to <pane-id|auto>  push the task's prompt into a Herdr pane
+  nx assign <id> --to <pane-id|auto>  push the task's prompt into an existing Herdr pane
+  nx dispatch <id>               lease, ensure workspace, place + start an agent, assign it
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
   --force writes to a probed board that has no projects.
@@ -788,6 +810,9 @@ async function main(): Promise<void> {
       return;
     case "assign":
       await assignCommand(rest);
+      return;
+    case "dispatch":
+      await dispatchCommand(rest);
       return;
     default:
       throw new CliError(`Unknown command "${command}". Run \`nx help\`.`);

@@ -71,8 +71,12 @@ export interface HarnessPort {
   createWorkspace(label: string, cwd: string | null): Promise<HarnessWorkspace>;
   /** Creates a tab in an existing workspace; `focus: false` for the same reason. */
   createTab(workspaceId: string, label: string, cwd: string | null): Promise<HarnessTabCreated>;
-  /** Starts an agent in an existing shell pane. Throws when Herdr refuses. */
-  startAgent(name: string, kind: string, paneId: string): Promise<void>;
+  /**
+   * Starts an agent in an existing shell pane. `timeoutMs` is how long Herdr may
+   * wait for the agent to become interactive and named before it fails. Throws
+   * when Herdr refuses or the wait expires. Never closes anything.
+   */
+  startAgent(name: string, kind: string, paneId: string, options?: { timeoutMs?: number }): Promise<void>;
   /**
    * Closes a tab. Dumb on purpose: Herdr cannot be made to refuse a close, so the
    * guard that protects a working agent lives in the application layer.

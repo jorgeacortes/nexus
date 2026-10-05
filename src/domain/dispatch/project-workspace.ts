@@ -18,3 +18,12 @@ export interface ProjectWorkspacePort {
   /** Persists the resolved or freshly created Herdr workspace id on the project. */
   setWorkspaceId(projectId: string, workspaceId: string): Promise<void>;
 }
+
+/**
+ * The read half the dispatcher needs: load the project a task belongs to as a
+ * `DispatchProject`. Split from `ProjectWorkspacePort` so `ensureWorkspace` and
+ * the dispatch flow each depend on only what they use.
+ */
+export interface DispatchProjectPort {
+  find(projectId: string): Promise<DispatchProject | null>;
+}
