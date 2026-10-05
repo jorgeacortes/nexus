@@ -1,4 +1,5 @@
 import type { HarnessPort } from "@/domain/dispatch/harness";
+import type { ProjectWorkspacePort } from "@/domain/dispatch/project-workspace";
 import type { ProjectRepository } from "@/domain/projects/project.repository";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import type { LiveAgentPort } from "@/domain/tasks/live-agents";
@@ -31,6 +32,17 @@ export const nexusPorts: NexusPorts = resolveNexusPorts();
 
 /** The dispatch context's Herdr topology port, served by the same socket client. */
 export const harness: HarnessPort = herdrClient;
+
+/**
+ * Persists the workspace `ensureWorkspace` resolves or creates onto its project.
+ * Routed through the same `ProjectRepository.update` the web PATCH uses, so the
+ * dispatcher's repair and `nx project edit --workspace` write identically.
+ */
+export const projectWorkspace: ProjectWorkspacePort = {
+  setWorkspaceId: async (projectId, workspaceId) => {
+    await projectRepo.update(projectId, { herdrWorkspaceId: workspaceId });
+  },
+};
 
 /** Adapts the projects repository to the lookup port the tasks context declares. */
 export const projectReference: ProjectReferencePort = {

@@ -9,7 +9,7 @@
  * what every candidate answered, and the chosen board is always reported.
  *
  *   nx ping / nx doctor
- *   nx project add|list
+ *   nx project add|edit|list
  *   nx task add|list|show
  *   nx claim <id> / nx done <id> [--notes] / nx need <id> [--reason]
  *   nx review <id> [--undo]       record the operator's verification of a done task
@@ -138,6 +138,42 @@ function flagValue(flags: Map<string, string | true>, name: string): string | nu
   return typeof value === "string" ? value : null;
 }
 
+/**
+ * Reads a flag that can also be cleared: `undefined` when it was not passed,
+ * `null` when it was passed as `-` / `none` / empty, otherwise the trimmed value.
+ */
+function clearableFlag(flags: Map<string, string | true>, name: string): string | null | undefined {
+  const raw = flagValue(flags, name);
+  if (raw === null) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed === "-" || trimmed.toLowerCase() === "none") return null;
+  return trimmed;
+}
+
+/**
+ * The PATCH body for `nx project edit`: only the fields the operator passed, so
+ * an omitted one is left untouched and `-` / `none` / empty clears a nullable
+ * one. This is the supported way to repoint a project at a Herdr workspace (a
+ * dead `herdrWorkspaceId` is also repaired automatically by `dispatch`).
+ */
+export function projectEditBody(flags: Map<string, string | true>): {
+  name?: string;
+  folderPath?: string | null;
+  herdrWorkspaceId?: string | null;
+} {
+  const body: { name?: string; folderPath?: string | null; herdrWorkspaceId?: string | null } = {};
+  const name = flagValue(flags, "name");
+  if (name !== null) body.name = name;
+  const folder = clearableFlag(flags, "folder");
+  if (folder !== undefined) body.folderPath = folder;
+  const workspace = clearableFlag(flags, "workspace");
+  if (workspace !== undefined) body.herdrWorkspaceId = workspace;
+  if (Object.keys(body).length === 0) {
+    throw new CliError("nx project edit: pass at least one field to edit (--name, --folder, --workspace)");
+  }
+  return body;
+}
+
 function hasFlag(flags: Map<string, string | true>, name: string): boolean {
   return flags.has(name);
 }
@@ -249,7 +285,26 @@ async function projectCommand(argv: string[]): Promise<void> {
     });
     return;
   }
-  throw new CliError(`Unknown project action "${action ?? ""}". Try: nx project add|list`);
+  if (action === "edit") {
+    const ref = positionals[0];
+    if (!ref) {
+      throw new CliError(
+        "Usage: nx project edit <name|id> [--name <text>] [--folder <path>| -] [--workspace <herdr-id>| -]",
+      );
+    }
+    const project = resolveProject(ref, await listProjects());
+    const updated = await request<Project>(`/api/projects/${project.id}`, {
+      method: "PATCH",
+      body: projectEditBody(flags),
+    });
+    output(flags, updated, () => {
+      const folder = updated.folderPath ? ` · ${updated.folderPath}` : "";
+      const workspace = updated.herdrWorkspaceId ? ` · workspace ${updated.herdrWorkspaceId}` : "";
+      console.log(`Updated project ${updated.name} (${shortId(updated.id)})${folder}${workspace}`);
+    });
+    return;
+  }
+  throw new CliError(`Unknown project action "${action ?? ""}". Try: nx project add|edit|list`);
 }
 
 async function taskCommand(argv: string[]): Promise<void> {
@@ -665,6 +720,7 @@ function usage(): void {
   nx ping                        print the board in use (non-zero exit when none answers)
   nx doctor                      every candidate board, what answered, and warnings
   nx project add <name> [--folder <path>] [--workspace <herdr-id>]
+  nx project edit <name|id> [--name <text>] [--folder <path>| -] [--workspace <herdr-id>| -]
   nx project list
   nx task add <project> "<title>" [--description <text>] [--status backlog|ready] [--priority <level>]
   nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]
@@ -679,6 +735,10 @@ function usage(): void {
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
   --force writes to a probed board that has no projects.
+
+  \`nx project edit --workspace <id>\` is the supported way to repoint a project
+  at a Herdr workspace; pass \`-\` to clear it. \`dispatch\` also repairs a dangling
+  herdrWorkspaceId automatically when it resolves a project's workspace.
 
   nx review is an operator assertion, never an agent self-assessment: an agent
   may run it only when the operator has explicitly confirmed they reviewed the

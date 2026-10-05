@@ -73,6 +73,7 @@ nx doctor      # every candidate, what answered, and what is suspicious
 
 ```bash
 nx project add "crm development" --folder ~/ws/biznagatec-crm --workspace wP
+nx project edit "crm development" --workspace wW   # repoint a dead workspace (`-` clears it)
 nx project list
 nx task add "crm development" "Implement TAVILY support" --status ready
 nx task list [project] [--status ready]
@@ -85,7 +86,13 @@ nx board --watch
 ```
 
 Every command accepts `--json`, and a task id may be abbreviated to any unique
-prefix. Agents read their own identity from `$HERDR_PANE_ID` — it is never typed.
+prefix. `nx project edit <name|id> [--name] [--folder] [--workspace]` is the
+supported way to change a project's folder or Herdr workspace (wrapping
+`PATCH /api/projects/<id>`); `--folder -` / `--workspace -` clears the field. A
+dangling `herdrWorkspaceId` a project still points at is also repaired by
+dispatch when it resolves the project's workspace, so a closed Herdr workspace
+never strands the project. Agents read their own identity from `$HERDR_PANE_ID`
+— it is never typed.
 `nx done --notes` is stored on the task (`tasks.completion_notes`) and shown in
 the card's detail panel next to the claim/completion timestamps. `nx board` and
 `nx task show` name the board they read, so two instances can never be confused.
