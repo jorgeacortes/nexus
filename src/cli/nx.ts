@@ -33,7 +33,7 @@ import {
   resolveBoard,
 } from "./board-target";
 import { orDash, renderTable, shortId, terminalWidth } from "./format";
-import type { ApiEnvelope, DispatchResult, LiveAgentsPayload, Project, Task } from "./types";
+import type { ApiEnvelope, CloseHarnessResult, DispatchResult, LiveAgentsPayload, Project, Task } from "./types";
 
 const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
@@ -719,8 +719,17 @@ async function assignCommand(argv: string[]): Promise<void> {
  * agent → assign. Unlike `nx assign` it needs no pre-existing pane: it creates
  * the workspace and tab the agent runs in. A second dispatch of the same task is
  * refused by the lease.
+ *
+ * `nx dispatch close <tab>` is the sibling teardown and the **sanctioned** way to
+ * close a harness tab (DESIGN-dispatch.md §3.2 / §4): it refuses, non-zero, while
+ * any pane in the tab still holds live work. A raw `herdr tab close` bypasses it.
  */
 async function dispatchCommand(argv: string[]): Promise<void> {
+  const closeAt = argv.indexOf("close");
+  if (closeAt !== -1) {
+    await dispatchCloseCommand([...argv.slice(0, closeAt), ...argv.slice(closeAt + 1)]);
+    return;
+  }
   const { positionals, flags } = parseArgs(argv);
   const task = resolveTask(positionals[0], await listTasks());
   const result = await request<DispatchResult>("/api/dispatch", { method: "POST", body: { taskId: task.id } });
@@ -731,7 +740,24 @@ async function dispatchCommand(argv: string[]): Promise<void> {
     console.log(`  pane       ${orDash(result.dispatch.paneId)}`);
     console.log(`  agent      ${orDash(result.dispatch.agentName)} · harness ${orDash(result.dispatch.harness)}`);
     console.log(`  lease      ${result.dispatch.leaseOwner} until ${result.dispatch.leaseUntil}`);
-    console.log("  Nothing is closed automatically; the guarded close is a separate command.");
+    console.log("  Nothing is closed automatically; close it later with `nx dispatch close <tab>`.");
+  });
+}
+
+/**
+ * `nx dispatch close <tab>` — the guarded teardown. It either closes the tab, or
+ * the server refuses with 409 and `nx` exits non-zero, having taken no action.
+ */
+async function dispatchCloseCommand(argv: string[]): Promise<void> {
+  const { positionals, flags } = parseArgs(argv);
+  const tabId = positionals[0];
+  if (!tabId) throw new CliError("Usage: nx dispatch close <tab-id>");
+  const result = await request<CloseHarnessResult>("/api/dispatch/close", { method: "POST", body: { tabId } });
+  output(flags, result, () => {
+    const label = result.tab.label ? ` "${result.tab.label}"` : "";
+    console.log(
+      `Closed tab ${result.tab.tabId}${label} (${result.paneCount} pane(s) checked, none holding live work).`,
+    );
   });
 }
 
@@ -754,6 +780,7 @@ function usage(): void {
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
   nx assign <id> --to <pane-id|auto>  push the task's prompt into an existing Herdr pane
   nx dispatch <id>               lease, ensure workspace, place + start an agent, assign it
+  nx dispatch close <tab-id>     guarded teardown: refuses while a pane holds live work
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
   --force writes to a probed board that has no projects.
@@ -765,6 +792,11 @@ function usage(): void {
   nx review is an operator assertion, never an agent self-assessment: an agent
   may run it only when the operator has explicitly confirmed they reviewed the
   task. Running the tests, or the work merely looking finished, is not a review.
+
+  \`nx dispatch close <tab>\` is the sanctioned way to close a harness tab: it
+  refuses (non-zero, naming the pane/agent/status) while any pane in the tab has
+  a working, blocked or unknown agent, an idle agent whose task is not done, or a
+  foreground process. Never \`herdr tab close\` a tab you did not start.
 
   The board comes from NEXUS_URL, then ${configPath()}, then the first of
   ${candidateUrls().join(", ")} that answers.`);

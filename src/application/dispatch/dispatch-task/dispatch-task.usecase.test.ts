@@ -77,6 +77,7 @@ function fakeHarness(options: { workspaces?: HarnessWorkspace[]; panes?: Harness
         calls.listPanes.push(workspaceId);
         return options.panes ?? [];
       },
+      getTab: async () => null,
       processes: async () => [],
       createWorkspace: async (label, cwd) => {
         calls.createWorkspace.push({ label, cwd });

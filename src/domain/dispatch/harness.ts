@@ -65,7 +65,15 @@ export interface HarnessPort {
   listWorkspaces(): Promise<HarnessWorkspace[]>;
   listTabs(workspaceId: string): Promise<HarnessTab[]>;
   listPanes(workspaceId: string): Promise<HarnessPane[]>;
-  /** The pane's foreground processes; empty for a bare prompt. */
+  /** The tab with this id, or null when Herdr does not report it. */
+  getTab(tabId: string): Promise<HarnessTab | null>;
+  /**
+   * The pane's foreground processes, **excluding the pane's own shell**: empty
+   * for a bare prompt, non-empty while the shell runs a build, a test or any
+   * other foreground command. The shell is always the foreground process when it
+   * sits at its prompt (`shell_pid`), so it is filtered out here rather than by
+   * every caller.
+   */
   processes(paneId: string): Promise<HarnessProcess[]>;
   /** Creates a workspace; `focus: false` so the operator's view never moves. */
   createWorkspace(label: string, cwd: string | null): Promise<HarnessWorkspace>;

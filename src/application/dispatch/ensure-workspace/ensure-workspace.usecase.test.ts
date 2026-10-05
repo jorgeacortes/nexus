@@ -60,6 +60,7 @@ function fakeHarness(parts: { workspaces?: HarnessWorkspace[]; panes?: Record<st
     port: {
       listWorkspaces: async () => parts.workspaces ?? [],
       listTabs: async () => [],
+      getTab: async () => null,
       listPanes: async (workspaceId) => {
         paneCalls.push(workspaceId);
         return parts.panes?.[workspaceId] ?? [];

@@ -12,3 +12,14 @@ export class MissingProjectFolderError extends Error {
     this.name = "MissingProjectFolderError";
   }
 }
+
+/**
+ * Raised when a guarded close names a tab Herdr does not report. Refusing (a 404,
+ * not a silent success) keeps a typo from reading as "closed it for you".
+ */
+export class TabNotFoundError extends Error {
+  constructor(tabId: string) {
+    super(`Herdr reports no tab ${tabId}; nothing was closed.`);
+    this.name = "TabNotFoundError";
+  }
+}

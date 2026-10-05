@@ -78,7 +78,7 @@ export interface HerdrPort {
 type HerdrResponse = { result?: unknown; error?: { code?: string; message?: string } };
 
 /** A JSON-RPC error from Herdr, carrying its machine-readable `code`. */
-class HerdrApiError extends Error {
+export class HerdrApiError extends Error {
   constructor(
     readonly code: string | undefined,
     message: string,
@@ -395,9 +395,32 @@ export class HerdrClient implements HerdrPort, HarnessPort {
     return recordsOf(result.panes).map(toPane);
   }
 
+  /** `tab.get` for the close guard; a `tab_not_found` error is `null`, not a throw. */
+  async getTab(tabId: string): Promise<HarnessTab | null> {
+    try {
+      const result = resultRecord(await this.call("tab.get", { tab_id: tabId }));
+      const tab = resultRecord(result.tab);
+      return Object.keys(tab).length === 0 ? null : toTab(tab);
+    } catch (error) {
+      if (error instanceof HerdrApiError && error.code === "tab_not_found") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   async processes(paneId: string): Promise<HarnessProcess[]> {
     const result = resultRecord(await this.call("pane.process_info", { pane_id: paneId }));
-    return recordsOf(resultRecord(result.process_info).foreground_processes).map(toProcess);
+    const info = resultRecord(result.process_info);
+    const shellPid = typeof info.shell_pid === "number" ? info.shell_pid : null;
+    return (
+      recordsOf(info.foreground_processes)
+        .map(toProcess)
+        // The shell is the foreground process at its own prompt, which is a bare
+        // prompt, not work (`shell_pid`). With no `shell_pid` to compare against,
+        // every process is kept, so the guard fails safe.
+        .filter((process) => shellPid === null || process.pid !== shellPid)
+    );
   }
 
   async createWorkspace(label: string, cwd: string | null): Promise<HarnessWorkspace> {

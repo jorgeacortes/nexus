@@ -79,6 +79,19 @@ export type DispatchResult = {
   placement: string;
 };
 
+/** `POST /api/dispatch/close` payload: the tab that passed the guard. */
+export type CloseHarnessResult = {
+  tab: {
+    tabId: string;
+    workspaceId: string;
+    label: string;
+    focused: boolean;
+    paneCount: number;
+    agentStatus: string;
+  };
+  paneCount: number;
+};
+
 /** Live agent row from `/api/herdr/snapshot` (Herdr state, never stored in SQLite). */
 export type LiveAgent = {
   paneId: string;

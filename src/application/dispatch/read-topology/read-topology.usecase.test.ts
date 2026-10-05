@@ -59,6 +59,7 @@ function fakeHarness(parts: {
         paneCalls.push(workspaceId);
         return parts.panes?.[workspaceId] ?? [];
       },
+      getTab: async () => null,
       processes: async () => [],
       createWorkspace: unused,
       createTab: unused,

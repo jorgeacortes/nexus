@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 
+import { CloseHarnessUseCase, type PaneTaskPort } from "@/application/dispatch/close-harness";
 import { DispatchTaskUseCase } from "@/application/dispatch/dispatch-task";
 import { EnsureWorkspaceUseCase } from "@/application/dispatch/ensure-workspace";
 import type { DispatchRepository } from "@/domain/dispatch/dispatch.repository";
@@ -91,6 +92,20 @@ export const liveAgents: LiveAgentPort = {
 };
 
 const ensureWorkspace = new EnsureWorkspaceUseCase(harness, projectWorkspace);
+
+/**
+ * The tasks-context read the close guard needs: the task a pane is assigned to.
+ * Through the same repository every other path uses, never a new query.
+ */
+export const paneTask: PaneTaskPort = {
+  findByHerdrPaneId: async (paneId) => {
+    const task = await taskRepo.findByHerdrPaneId(paneId);
+    return task ? { id: task.id, title: task.title, status: task.status } : null;
+  },
+};
+
+/** The guarded teardown `nx dispatch close` and `POST /api/dispatch/close` call. */
+export const closeHarness = new CloseHarnessUseCase(harness, paneTask);
 
 /** The one-shot actuator `nx dispatch` and `POST /api/dispatch` call. No daemon. */
 export const dispatchTask = new DispatchTaskUseCase({

@@ -38,7 +38,7 @@ pnpm db:studio
 
 ## Architecture
 
-Hexagonal layers, two bounded contexts (`projects`, `tasks`):
+Hexagonal layers, three bounded contexts (`projects`, `tasks`, `dispatch`):
 
 - Layers: `src/domain/<context>/` → `src/application/<context>/` → `src/infrastructure/` → `src/app/` (thin route/API adapters)
 - Schema + repositories: `src/infrastructure/db/<context>/` and `src/infrastructure/repositories/<context>/`
@@ -83,6 +83,32 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
   card renders a separate `ModelTag` (`src/components/model-tag.tsx`) on its own
   row. See "Which model is the agent running?" below for where the value comes
   from and why Herdr's status line is only a fallback.
+
+## Closing a harness tab (guarded close)
+
+- **Invariant: never close a tab that holds live work.** Herdr cannot be made to
+  refuse a raw close (`tab.close` takes only `tab_id`; there is no pre-close
+  hook), so every close path Nexus controls goes through the guard. The incident
+  this exists for: a `/tmp` script closed a tab whose agent was still `working`,
+  killing ~2400 lines of uncommitted work.
+- **The sanctioned way to close a harness tab is `nx dispatch close <tab-id>`**
+  (`POST /api/dispatch/close`). It refuses, non-zero, naming the pane, its agent
+  and its status, when **any** pane in the tab has a `working`/`blocked`/`unknown`
+  agent, an `idle` agent whose task is not `done`, or no recognized agent but a
+  foreground process. A refusal takes no action: the tab stays open. Do not
+  `herdr tab close` a tab you did not start.
+- The decision is pure domain code (`assessTabClose` in
+  `src/domain/dispatch/close-guard.ts`, unit-tested);
+  `CloseHarnessUseCase` (`src/application/dispatch/close-harness/`) resolves the
+  facts — the tab's panes, each pane's task via `tasks.herdr_pane_id`, and the
+  foreground processes of an agent-less pane — and calls `HarnessPort.closeTab`
+  only on an allow. `closeTab` on the adapter stays dumb.
+- The foreground-process test comes from `pane.process_info` and **excludes the
+  pane's own shell**: at a prompt the shell is the foreground process
+  (`shell_pid`), which is a bare prompt, not work. With no `shell_pid` to compare
+  against, every process counts, so the guard fails safe.
+- Last-tab destruction is deliberately **not** guarded: an empty workspace is
+  cheap to recreate from the project row (`folderPath` gives the cwd).
 
 ## Which model is the agent running?
 

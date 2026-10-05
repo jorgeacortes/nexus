@@ -131,6 +131,68 @@ describe("HerdrClient HarnessPort reads", () => {
     ]);
     expect(calls).toEqual([{ method: "pane.process_info", params: { pane_id: "wR:p1" } }]);
   });
+
+  it("treats the pane's own shell as a bare prompt, not a foreground process", async () => {
+    const { client } = clientAnswering({
+      "pane.process_info": {
+        type: "pane_process_info",
+        process_info: {
+          pane_id: "wR:pF",
+          shell_pid: 481221,
+          foreground_process_group_id: 481221,
+          foreground_processes: [{ pid: 481221, name: "bash", cmdline: "/bin/bash", cwd: "/tmp" }],
+        },
+      },
+    });
+
+    expect(await client.processes("wR:pF")).toEqual([]);
+  });
+
+  it("keeps every process when Herdr reports no shell_pid, so the guard fails safe", async () => {
+    const { client } = clientAnswering({
+      "pane.process_info": {
+        type: "pane_process_info",
+        process_info: {
+          pane_id: "wR:pF",
+          foreground_processes: [{ pid: 481221, name: "bash", cmdline: "/bin/bash", cwd: "/tmp" }],
+        },
+      },
+    });
+
+    expect(await client.processes("wR:pF")).toEqual([{ pid: 481221, name: "bash", cmdline: "/bin/bash", cwd: "/tmp" }]);
+  });
+
+  it("sends tab.get and maps the tab", async () => {
+    const { client, calls } = clientAnswering({
+      "tab.get": {
+        type: "tab_info",
+        tab: {
+          tab_id: "wR:t7",
+          workspace_id: "wR",
+          label: "dsp-2-harness-port",
+          focused: false,
+          pane_count: 1,
+          agent_status: "done",
+        },
+      },
+    });
+
+    expect(await client.getTab("wR:t7")).toEqual({
+      tabId: "wR:t7",
+      workspaceId: "wR",
+      label: "dsp-2-harness-port",
+      focused: false,
+      paneCount: 1,
+      agentStatus: "done",
+    });
+    expect(calls).toEqual([{ method: "tab.get", params: { tab_id: "wR:t7" } }]);
+  });
+
+  it("returns null for a tab Herdr does not report", async () => {
+    const { client } = clientWith(async () => ({ error: { code: "tab_not_found", message: "tab wR:zz not found" } }));
+
+    expect(await client.getTab("wR:zz")).toBeNull();
+  });
 });
 
 describe("HerdrClient HarnessPort writes", () => {
