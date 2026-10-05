@@ -3,6 +3,14 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type {
+  HarnessPane,
+  HarnessPort,
+  HarnessProcess,
+  HarnessTab,
+  HarnessTabCreated,
+  HarnessWorkspace,
+} from "@/domain/dispatch/harness";
 import { normalizeEffort, normalizeModelId } from "@/domain/tasks/model";
 import { harnessFromAgentKind } from "@/domain/tasks/task";
 import { type HarnessSession, resolveObservedModel } from "@/infrastructure/herdr/session-model";
@@ -68,6 +76,13 @@ export interface HerdrPort {
 }
 
 type HerdrResponse = { result?: unknown; error?: { message?: string } };
+
+/**
+ * One JSON-RPC round-trip against the Herdr socket. Injectable so the topology
+ * adapter can be tested for the exact method/params it sends without a socket
+ * (production passes `herdrRequest`).
+ */
+export type HerdrRequestFn = (method: string, params?: Record<string, unknown>) => Promise<HerdrResponse>;
 
 type RawSnapshot = {
   agents?: Array<Record<string, unknown>>;
@@ -227,12 +242,82 @@ function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+function countOf(value: unknown): number {
+  const count = Number(value);
+  return Number.isFinite(count) ? count : 0;
+}
+
+function statusOf(value: unknown): string {
+  return typeof value === "string" && value !== "" ? value : "unknown";
+}
+
+/** Maps the `workspace_*` / `tab_*` / `pane_*` JSON into the dispatch port's shapes. */
+function toWorkspace(raw: Record<string, unknown>): HarnessWorkspace {
+  return {
+    workspaceId: String(raw.workspace_id ?? ""),
+    label: String(raw.label ?? ""),
+    focused: Boolean(raw.focused),
+    tabCount: countOf(raw.tab_count),
+    paneCount: countOf(raw.pane_count),
+    agentStatus: statusOf(raw.agent_status),
+    activeTabId: stringOrNull(raw.active_tab_id),
+  };
+}
+
+function toTab(raw: Record<string, unknown>): HarnessTab {
+  return {
+    tabId: String(raw.tab_id ?? ""),
+    workspaceId: String(raw.workspace_id ?? ""),
+    label: String(raw.label ?? ""),
+    focused: Boolean(raw.focused),
+    paneCount: countOf(raw.pane_count),
+    agentStatus: statusOf(raw.agent_status),
+  };
+}
+
+function toPane(raw: Record<string, unknown>): HarnessPane {
+  return {
+    paneId: String(raw.pane_id ?? ""),
+    tabId: String(raw.tab_id ?? ""),
+    workspaceId: String(raw.workspace_id ?? ""),
+    agent: stringOrNull(raw.agent),
+    agentStatus: statusOf(raw.agent_status),
+    cwd: stringOrNull(raw.cwd),
+    focused: Boolean(raw.focused),
+    terminalTitle: String(raw.terminal_title_stripped ?? raw.terminal_title ?? ""),
+  };
+}
+
+function toProcess(raw: Record<string, unknown>): HarnessProcess {
+  return {
+    pid: countOf(raw.pid),
+    name: String(raw.name ?? ""),
+    cmdline: stringOrNull(raw.cmdline),
+    cwd: stringOrNull(raw.cwd),
+  };
+}
+
+function resultRecord(result: unknown): Record<string, unknown> {
+  return result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+}
+
+function recordsOf(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? (value as Array<Record<string, unknown>>) : [];
+}
+
 /**
  * Adapter: Herdr socket + CLI. Reads prefer the socket (`session.snapshot`) so
  * the container needs no Herdr binary; the CLI is a fallback. `agent.prompt`
- * goes over the socket.
+ * goes over the socket. The topology methods (`HarnessPort`) always go over the
+ * socket, so `nx dispatch` needs no Herdr binary either.
  */
-export class HerdrClient implements HerdrPort {
+export class HerdrClient implements HerdrPort, HarnessPort {
+  /**
+   * `request` defaults to the real socket round-trip; tests inject a fake to
+   * assert the exact method/params the topology adapter sends.
+   */
+  constructor(private readonly request: HerdrRequestFn = (method, params) => herdrRequest(method, params)) {}
+
   async snapshot(): Promise<HerdrSnapshot> {
     return hydrate(await this.readSnapshot());
   }
@@ -244,7 +329,7 @@ export class HerdrClient implements HerdrPort {
    */
   private async readSnapshot(): Promise<HerdrSnapshot> {
     try {
-      const response = await herdrRequest("session.snapshot");
+      const response = await this.request("session.snapshot");
       if (response.error) {
         throw new Error(response.error.message ?? "herdr session.snapshot failed");
       }
@@ -261,7 +346,7 @@ export class HerdrClient implements HerdrPort {
   }
 
   async prompt(target: string, text: string, options?: { timeoutMs?: number; until?: string[] }): Promise<void> {
-    const response = await herdrRequest("agent.prompt", {
+    const response = await this.request("agent.prompt", {
       target,
       text,
       wait: options?.until ? { until: options.until, timeout_ms: options.timeoutMs ?? null } : null,
@@ -269,6 +354,55 @@ export class HerdrClient implements HerdrPort {
     if (response.error) {
       throw new Error(response.error.message ?? "herdr agent.prompt failed");
     }
+  }
+
+  // --- HarnessPort: Herdr topology (dispatch context) ---
+
+  async listWorkspaces(): Promise<HarnessWorkspace[]> {
+    const result = resultRecord(await this.call("workspace.list"));
+    return recordsOf(result.workspaces).map(toWorkspace);
+  }
+
+  async listTabs(workspaceId: string): Promise<HarnessTab[]> {
+    const result = resultRecord(await this.call("tab.list", { workspace_id: workspaceId }));
+    return recordsOf(result.tabs).map(toTab);
+  }
+
+  async listPanes(workspaceId: string): Promise<HarnessPane[]> {
+    const result = resultRecord(await this.call("pane.list", { workspace_id: workspaceId }));
+    return recordsOf(result.panes).map(toPane);
+  }
+
+  async processes(paneId: string): Promise<HarnessProcess[]> {
+    const result = resultRecord(await this.call("pane.process_info", { pane_id: paneId }));
+    return recordsOf(resultRecord(result.process_info).foreground_processes).map(toProcess);
+  }
+
+  async createWorkspace(label: string, cwd: string | null): Promise<HarnessWorkspace> {
+    const result = resultRecord(await this.call("workspace.create", { label, cwd, focus: false }));
+    return toWorkspace(resultRecord(result.workspace));
+  }
+
+  async createTab(workspaceId: string, label: string, cwd: string | null): Promise<HarnessTabCreated> {
+    const result = resultRecord(await this.call("tab.create", { workspace_id: workspaceId, label, cwd, focus: false }));
+    return { tab: toTab(resultRecord(result.tab)), rootPane: toPane(resultRecord(result.root_pane)) };
+  }
+
+  async startAgent(name: string, kind: string, paneId: string): Promise<void> {
+    await this.call("agent.start", { name, kind, pane_id: paneId });
+  }
+
+  async closeTab(tabId: string): Promise<void> {
+    await this.call("tab.close", { tab_id: tabId });
+  }
+
+  /** One JSON-RPC request, unwrapped and error-checked. */
+  private async call(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    const response = await this.request(method, params);
+    if (response.error) {
+      throw new Error(response.error.message ?? `herdr ${method} failed`);
+    }
+    return response.result;
   }
 
   private runCli(args: string[]): Promise<Record<string, unknown>> {
