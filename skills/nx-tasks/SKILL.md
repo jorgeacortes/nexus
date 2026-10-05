@@ -1,6 +1,6 @@
 ---
 name: nx-tasks
-description: Take, create, and finish Nexus tasks with the `nx` CLI — the task board for this machine. Use when the operator says "take task #N", "work the board", "what's left on <project>", asks for board or task status, or when you need to claim, complete, create, or flag a task, or dispatch one to a Herdr pane.
+description: Take, create, and finish Nexus tasks with the `nx` CLI — the task board for this machine. Use when the operator says "take task #N", "work the board", "what's left on <project>", asks for board or task status, or when you need to claim, complete, create, or flag a task, dispatch one to a Herdr pane, or close a harness tab safely.
 ---
 
 # Nexus tasks (`nx`)
@@ -34,9 +34,35 @@ unique prefix, and `--json` works on every command.
 - `nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]` —
   update fields on an existing task.
 - `nx project list` / `nx project add <name> --folder <path> --workspace <id>`.
+- `nx project edit <name|id> [--name <text>] [--folder <path>|-] [--workspace <herdr-id>|-]` —
+  the supported way to repoint a project's folder or Herdr workspace; `-` clears.
 - `nx need <id> --reason "..."` — flag that this needs the operator.
 - `nx assign <id> --to <pane-id|auto>` — push the task's prompt into a Herdr pane
-  (operator action; `auto` = the idle pane inside the project folder).
+  that **already exists** (`auto` = the idle pane inside the project folder).
+
+## Starting and closing harness work
+
+Prefer these over calling `herdr` yourself: they are the only paths that lease the
+task, keep one agent per task, and repair a project's dead workspace link.
+
+- `nx dispatch <task>` — start work that needs topology: lease the task, resolve or
+  create the project's Herdr workspace, place the agent (reuse a bare shell pane in
+  the project folder, else a new tab), start it, and assign the task. **Do not
+  hand-roll `herdr tab create` + `herdr agent start` + `nx assign`** — no lease, no
+  guard, no repair.
+- `nx dispatch close <tab-id>` — **the sanctioned way to close a harness tab.**
+  Never `herdr tab close` a tab you did not start. It refuses, non-zero, naming the
+  pane, its agent and its status, while any pane in the tab still holds live work:
+  an agent that is `working`/`blocked`/`unknown`, an `idle` agent whose task is not
+  `done`, or a foreground process. **A refusal is not a bug — it means do not kill
+  that work.**
+- `nx dispatch detect` — one-shot sweep that flags a dispatched agent which vanished
+  without finishing (`needsHuman` on its task). Read-only towards Herdr. Nothing
+  runs on a timer.
+
+Herdr has no pre-close hook, so a raw `herdr tab close` cannot be made to fail: the
+guard covers the `nx` path only, and closing a workspace's **last** tab destroys the
+workspace. Rationale: `nexus/DESIGN-dispatch.md`.
 
 ## Two things that look like failures but are not
 
@@ -55,6 +81,7 @@ unique prefix, and `--json` works on every command.
   with the task even before the claim lands.
 - If you need the operator, do not park the status: `nx need <id> --reason "..."`.
 - `blocked` means the work cannot move forward right now — never use it just to stop.
+- Never close a harness tab you did not start; use `nx dispatch close`.
 
 ## Errors
 
