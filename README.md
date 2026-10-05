@@ -135,7 +135,7 @@ nx board --watch
 `$HERDR_PANE_ID` inside that pane belongs to the board, not to an agent, so the
 board will not try to claim work for it.
 
-### `nx assign` — the declarative push
+### `nx assign` — the declarative push into an existing pane
 
 `nx assign <id> --to <pane-id>` injects a short instruction into that Herdr pane
 (through `agent.prompt`, server-side): claim the task, work it, complete it. The
@@ -148,8 +148,32 @@ nx assign 42 --to auto    # idle pane whose cwd is inside the task's project fol
 ```
 
 `auto` never crosses projects: with no idle agent under the project folder it
-exits non-zero with the folder it looked in. There is no dispatcher daemon —
-this is the only push, and it is manual.
+exits non-zero with the folder it looked in. It never creates a pane or a tab —
+use `nx dispatch` when the topology may not exist yet.
+
+### `nx dispatch` — start work, and close it safely
+
+`nx dispatch <task>` is the dispatcher: it **leases** the task (one agent per
+task), resolves the project's Herdr workspace — creating it and repairing the
+project's link when it is missing — places the agent (reusing a bare shell pane in
+the project folder, otherwise a new tab), starts it, hands it the dispatch brief,
+and records the pane on the task.
+
+```bash
+nx dispatch 42                 # lease → ensure workspace → place → start agent → assign
+nx dispatch close wR:t7        # the sanctioned way to close a harness tab
+nx dispatch detect             # flag dispatched agents that vanished without finishing
+```
+
+`nx dispatch close` refuses, non-zero, naming the pane, its agent and its status,
+while **any** pane in the tab still holds live work: an agent that is
+`working`/`blocked`/`unknown`, an `idle` agent whose task is not `done`, or a
+foreground process. Herdr has no pre-close hook, so a raw `herdr tab close` cannot
+be blocked — the guard covers the `nx` path only, and closing a workspace's **last**
+tab destroys the workspace. Flow and rationale: `DESIGN-dispatch.md`.
+
+There is still **no dispatcher daemon**: `nx dispatch` is one-shot, and nothing
+decides *when* to dispatch yet (the jobs table + `nx job tick` are not built).
 
 ## Deployment (Docker Compose)
 

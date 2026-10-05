@@ -21,7 +21,7 @@ tears the tab down **under guard**. Herdr is reached through a domain port; the
 | `HerdrPort` | exactly two operations — `snapshot()` and `prompt(paneId, text)`. No topology. |
 | `src/domain/tasks/agent-prompt.ts` | the precedent for a **narrow domain port**: `AgentPromptPort`, adapted to `HerdrClient` in `src/infrastructure/container.ts`. |
 | `nx assign` | an HTTP client call: `POST /api/tasks/[id]/dispatch` → `DispatchTaskUseCase` → `AgentPromptPort.prompt`. It **requires an existing pane**; `--to auto` fails when no idle pane matches. |
-| topology automation | exactly one script, `/tmp/joma-dispatch.sh`: `nx task edit --status ready` → `herdr tab create` → `herdr agent start <slug> --kind pi` → `nx assign` → poll 45 s × N → `herdr tab close`. Outside version control. |
+| topology automation | exactly one script, `/tmp/joma-dispatch.sh`: `nx task edit --status ready` → `herdr tab create` → `herdr agent start <slug> --kind pi` → `nx assign` → poll 45 s × N → `herdr tab close`. Outside version control. **Retired in §8.** |
 | Herdr capabilities we need | `workspace create`, `tab create --workspace --cwd --label`, `pane list --workspace`, `tab list --workspace`, `agent start <name> --kind <k> --pane <id>` (needs an *existing shell pane*), `agent list`, `pane process-info`, `tab close`. |
 | no pre-close hook | `tab.close` takes only `tab_id`; `tab.closed`/`workspace.closed` are post-hoc events; plugins register keybinding actions, not interceptors. **A raw close cannot be made to fail.** |
 
@@ -184,8 +184,17 @@ Net effect: Nexus gains an *actuator* it can call on demand, but gains no daemon
 | `DSP-6` | `detectLostAgents()` → `needsHuman` | DSP-2 |
 | `DSP-7` | retire `/tmp/joma-dispatch.sh` | DSP-4, **and joma must have no dispatch in flight** |
 
-`DSP-7` is deliberately gated: `/tmp/joma-dispatch.sh` stays in place until the
-replacement is verified *and* the current joma work in progress has finished.
+`DSP-7` is **done (2026-10-05)**: `/tmp/joma-dispatch.sh` is retired. It was the
+only topology automation on the machine and it bypassed everything above by
+calling `herdr tab create` / `herdr tab close` directly. Its behaviours now live
+in: `nx dispatch` (create tab → start agent → assign), `nx dispatch close` (the
+guarded teardown it never had), and `nx dispatch detect` (the vanished-agent case
+its `agent-gone` branch noticed but never recorded). Its **poll-until-settled +
+report** loop — poll the task, print `git log`/`git status`/pane tail, then close
+when `done` — has no home yet; that is the job dispatcher's
+`runDueJobs()`/`nx job tick` work (§5, `ASSESSMENT-periodic-job-dispatcher.md`).
+An archived copy is kept out of the execution path at
+`~/.config/nexus/retired/joma-dispatch.sh.txt`.
 
 ## 9. Evidence
 
@@ -201,6 +210,6 @@ replacement is verified *and* the current joma work in progress has finished.
   `src/infrastructure/herdr/herdr-client.ts` (`HerdrPort` = `snapshot` + `prompt`);
   `src/application/tasks/dispatch-task/dispatch-task.usecase.ts`;
   `src/cli/nx.ts`; `docker-compose.yml` (`/herdr:ro`, `HERDR_SOCKET`).
-- Scripts: `/tmp/joma-dispatch.sh` (the only topology automation; unversioned).
+- Scripts: `/tmp/joma-dispatch.sh` (the only topology automation; unversioned; retired in §8).
 - Sibling decisions: `ASSESSMENT-agent-orchestrator.md`,
   `DESIGN-agent-orchestrator.md`, `ASSESSMENT-periodic-job-dispatcher.md`.
