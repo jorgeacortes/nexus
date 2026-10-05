@@ -47,7 +47,7 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 - Co-location-based structure: screens under `src/app/(main)/<screen>/page.tsx`, screen-specific components in `_components/`. Keep `page.tsx` a Server Component by default.
 - Shared shadcn components live in `src/components/ui/`; shared app code in `src/components/`, `src/hooks/`, `src/lib/`.
 
-`projects` and `tasks` are the only bounded contexts. Do not cross DB boundaries with SQL joins; every integration (Herdr, future agent providers) is an application-level port implemented in `src/infrastructure/`.
+`projects`, `tasks` and `dispatch` are the bounded contexts (`dispatch` added 2026-10-05, see `DESIGN-dispatch.md`: it owns ensure-workspace → tab → start agent → assign, and the guarded close). Do not cross DB boundaries with SQL joins; every integration (Herdr, future agent providers) is a port declared as a narrow interface in `src/domain/` implemented in `src/infrastructure/` (precedent: `src/domain/tasks/agent-prompt.ts`). A *repository* persists aggregates in SQLite; an external system is a *port*, never a repository.
 
 ## Reviewed tasks (`reviewedAt`)
 

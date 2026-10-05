@@ -12,7 +12,9 @@ This is the single source of truth for the project's product decisions and imple
 1. **Monitor agents:** see every agent across harnesses and what it is doing right now (working/idle/blocked, current task, live titles).
 2. **Manage and visualize work:** one kanban board of tasks with status, the project as a tag, the assignee (agent or the operator), and a clear signal for tasks needing human action.
 
-**Non-goals.** Multi-user support, authentication, hosting for teams, mobile apps, task automation itself (Nexus observes and dispatches; it does not execute work), integrations beyond Herdr for now.
+**Non-goals.** Multi-user support, authentication, hosting for teams, mobile apps, integrations beyond Herdr for now.
+
+> **Amended 2026-10-05 (operator decision, see `DESIGN-dispatch.md`).** The old non-goal *"task automation itself (Nexus observes and dispatches; it does not execute work)"* is narrowed: Nexus now owns a `dispatch` context that **creates Herdr topology and starts agents** on demand (`nx dispatch <task>`). The companion non-goal **still stands**: there is no dispatcher daemon, no poller, no queue, no background scheduler inside Next.js — `dispatch()` is a one-shot function invoked by a CLI or a timer outside the app.
 
 **Constraints.**
 - **Personal project:** single operator, single machine; no auth, no multi-tenancy.
