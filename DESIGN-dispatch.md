@@ -130,6 +130,13 @@ A tab is protected if **any** pane in it matches:
 | agent `done` | allow |
 | no recognized agent but `pane process-info` reports a foreground process | refuse |
 | bare prompt, no agent, no foreground process | allow |
+| an open, lease-held `dispatches` row on the tab whose task is not `done` | refuse |
+
+The last row is the ledger's other direction (`DSP-10`): a dispatch that reached
+placement but never wrote `tasks.herdr_pane_id` leaves the pane-level join blind,
+while its open row still names the tab. A row whose *unstarted* lease has lapsed
+is not held (`isLeaseHeld`) and does not block — the bare shell such a crash left
+has nothing to lose.
 
 Refusal exits non-zero and names the pane, its agent and its status. **A close is
 never triggered by a timeout** — that was the incident. Last-tab destruction is

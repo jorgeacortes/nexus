@@ -4,6 +4,7 @@ import {
   type ClosedTabDispatchPort,
   CloseHarnessUseCase,
   type PaneTaskPort,
+  type TabDispatchRow,
 } from "@/application/dispatch/close-harness";
 import { TabNotFoundError } from "@/application/dispatch/errors";
 import type { CloseGuardTask } from "@/domain/dispatch/close-guard";
@@ -12,6 +13,8 @@ import type { HarnessPane, HarnessPort, HarnessProcess, HarnessTab } from "@/dom
 
 const WORKSPACE = "wR";
 const TAB = "wR:tA";
+const NOW = new Date("2026-10-05T18:00:00.000Z");
+const FUTURE = new Date("2026-10-05T18:05:00.000Z");
 
 function tab(tabId = TAB, workspaceId = WORKSPACE, agentStatus = "unknown"): HarnessTab {
   return { tabId, workspaceId, label: "dsp-5-close-guard", focused: false, paneCount: 1, agentStatus };
@@ -37,6 +40,8 @@ function fakeHarness(options: {
   panes?: HarnessPane[];
   processes?: Record<string, HarnessProcess[]>;
   tasks?: Record<string, CloseGuardTask>;
+  tasksById?: Record<string, CloseGuardTask>;
+  openRows?: TabDispatchRow[];
 }): {
   harness: HarnessPort;
   tasks: PaneTaskPort;
@@ -45,11 +50,13 @@ function fakeHarness(options: {
   endedDispatchTabs: string[];
   processCalls: string[];
   taskCalls: string[];
+  listOpenCalls: string[];
 } {
   const closedTabs: string[] = [];
   const endedDispatchTabs: string[] = [];
   const processCalls: string[] = [];
   const taskCalls: string[] = [];
+  const listOpenCalls: string[] = [];
   const unused = () => {
     throw new Error("write method is not part of the close flow");
   };
@@ -75,13 +82,18 @@ function fakeHarness(options: {
       taskCalls.push(paneId);
       return options.tasks?.[paneId] ?? null;
     },
+    findById: async (taskId) => options.tasksById?.[taskId] ?? null,
   };
   const dispatches: ClosedTabDispatchPort = {
+    listOpenForTab: async (tabId) => {
+      listOpenCalls.push(tabId);
+      return options.openRows ?? [];
+    },
     endOpenForTab: async (tabId) => {
       endedDispatchTabs.push(tabId);
     },
   };
-  return { harness, tasks, dispatches, closedTabs, endedDispatchTabs, processCalls, taskCalls };
+  return { harness, tasks, dispatches, closedTabs, endedDispatchTabs, processCalls, taskCalls, listOpenCalls };
 }
 
 describe("CloseHarnessUseCase", () => {
@@ -191,5 +203,101 @@ describe("CloseHarnessUseCase", () => {
 
     expect(result.paneCount).toBe(1);
     expect(fake.closedTabs).toEqual([TAB]);
+  });
+
+  it("refuses a tab whose orphan dispatch row names a task that is not done", async () => {
+    const options = {
+      tab: tab(TAB, WORKSPACE, "idle"),
+      panes: [pane({ agent: "pi", agentStatus: "idle" })],
+      openRows: [{ id: "d-orphan", taskId: "5f7325b7", paneId: "wR:pE", startedAt: NOW, leaseUntil: FUTURE }],
+      tasksById: { "5f7325b7": { id: "5f7325b7", title: "Orphaned dispatch", status: "in_progress" } },
+    };
+    const fake = fakeHarness(options);
+
+    const error = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches, () => NOW)
+      .execute(TAB)
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TabCloseRefusedError);
+    expect((error as Error).message).toContain("d-orphan");
+    expect((error as Error).message).toContain("in_progress");
+    expect(fake.closedTabs).toEqual([]);
+    expect(fake.endedDispatchTabs).toEqual([]);
+    expect(fake.listOpenCalls).toEqual([TAB]);
+  });
+
+  it("refuses a live orphan row on an agent-less pane with no foreground process", async () => {
+    const options = {
+      panes: [pane({ agent: null })],
+      openRows: [{ id: "d-shell", taskId: "t9", paneId: "wR:pE", startedAt: NOW, leaseUntil: FUTURE }],
+      tasksById: { t9: { id: "t9", title: "Crashed dispatch", status: "ready" } },
+    };
+    const fake = fakeHarness(options);
+
+    const error = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches, () => NOW)
+      .execute(TAB)
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TabCloseRefusedError);
+    expect((error as Error).message).toContain("d-shell");
+    expect(fake.closedTabs).toEqual([]);
+  });
+
+  it("closes a tab whose only open dispatch row has a done task (DSP-8)", async () => {
+    const options = {
+      panes: [pane({ agent: null })],
+      openRows: [{ id: "d-done", taskId: "t-done", paneId: "wR:pE", startedAt: NOW, leaseUntil: FUTURE }],
+      tasksById: { "t-done": { id: "t-done", title: "Finished", status: "done" } },
+    };
+    const fake = fakeHarness(options);
+
+    await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches, () => NOW).execute(TAB);
+
+    expect(fake.closedTabs).toEqual([TAB]);
+    expect(fake.endedDispatchTabs).toEqual([TAB]);
+  });
+
+  it("refuses when the open row's task cannot be read", async () => {
+    const options = {
+      panes: [pane({ agent: null })],
+      openRows: [{ id: "d-missing", taskId: "gone", paneId: "wR:pE", startedAt: NOW, leaseUntil: FUTURE }],
+    };
+    const fake = fakeHarness(options);
+
+    const error = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches, () => NOW)
+      .execute(TAB)
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TabCloseRefusedError);
+    expect((error as Error).message).toContain("d-missing");
+    expect((error as Error).message).toContain("could not be read");
+    expect(fake.closedTabs).toEqual([]);
+  });
+
+  it("blocks while an unstarted row still holds its lease", async () => {
+    const options = {
+      panes: [pane({ agent: null })],
+      openRows: [{ id: "d-lease", taskId: "t9", paneId: "wR:pE", startedAt: null, leaseUntil: FUTURE }],
+      tasksById: { t9: { id: "t9", title: "In flight", status: "ready" } },
+    };
+    const fake = fakeHarness(options);
+
+    const error = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches, () => NOW)
+      .execute(TAB)
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TabCloseRefusedError);
+    expect((error as Error).message).toContain("d-lease");
+  });
+
+  it("does not let a lapsed unstarted row block a bare shell", async () => {
+    const later = new Date("2026-10-05T18:30:00.000Z");
+    const options = {
+      panes: [pane({ agent: null })],
+      openRows: [{ id: "d-stale", taskId: "t9", paneId: "wR:pE", startedAt: null, leaseUntil: FUTURE }],
+      tasksById: { t9: { id: "t9", title: "Crashed dispatch", status: "ready" } },
+    };
+    const fake = fakeHarness(options);
+
+    await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches, () => later).execute(TAB);
+
+    expect(fake.closedTabs).toEqual([TAB]);
+    expect(fake.endedDispatchTabs).toEqual([TAB]);
   });
 });

@@ -108,6 +108,12 @@ export const paneTask: PaneTaskPort = {
     const task = await taskRepo.findByHerdrPaneId(paneId);
     return task ? { id: task.id, title: task.title, status: task.status } : null;
   },
+  // The ledger join (DSP-10): an open dispatch row names a task id, and the
+  // guard judges the close by that task's status.
+  findById: async (taskId) => {
+    const task = await taskRepo.findById(taskId);
+    return task ? { id: task.id, title: task.title, status: task.status } : null;
+  },
 };
 
 /**
@@ -126,6 +132,14 @@ export const finishedTaskDispatch: FinishedTaskDispatchPort = {
  * tab, so every open row placed on it ends as `closed`.
  */
 export const closedTabDispatches: ClosedTabDispatchPort = {
+  listOpenForTab: async (tabId) =>
+    (await dispatchRepo.findOpenByTabId(tabId)).map((row) => ({
+      id: row.id,
+      taskId: row.taskId,
+      paneId: row.paneId,
+      startedAt: row.startedAt,
+      leaseUntil: row.leaseUntil,
+    })),
   endOpenForTab: async (tabId) => {
     await dispatchRepo.finishOpenForTab(tabId, new Date());
   },

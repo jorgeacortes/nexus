@@ -104,6 +104,7 @@ function fakeDispatches(open: Dispatch[]): {
       listOpen: async () => open,
       findById: async (id) => open.find((row) => row.id === id) ?? null,
       findOpenByTaskId: async (taskId) => open.find((row) => row.taskId === taskId) ?? null,
+      findOpenByTabId: async (tabId) => open.filter((row) => row.tabId === tabId),
       findByTaskId: async (taskId) => open.filter((row) => row.taskId === taskId),
       finish: async (id, outcome) => {
         finishes.push({ id, outcome });

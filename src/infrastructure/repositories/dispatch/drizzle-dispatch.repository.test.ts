@@ -116,6 +116,22 @@ describe("DrizzleDispatchRepository", () => {
     expect(await repo.finishOpenForTab("wR:t1", NOW)).toEqual([]);
   });
 
+  it("finds the open rows placed on a tab, ignoring ended rows and other tabs", async () => {
+    const onTab = await acquire("t1", "host:1");
+    await repo.recordPlacement(onTab.id, { workspaceId: "wR", tabId: "wR:t1", paneId: "wR:p1" });
+    const endedOnTab = await acquire("t2", "host:2");
+    await repo.recordPlacement(endedOnTab.id, { workspaceId: "wR", tabId: "wR:t1", paneId: "wR:p2" });
+    await repo.finish(endedOnTab.id, "closed", NOW);
+    const otherTab = await acquire("t3", "host:3");
+    await repo.recordPlacement(otherTab.id, { workspaceId: "wR", tabId: "wR:t2", paneId: "wR:p3" });
+
+    const open = await repo.findOpenByTabId("wR:t1");
+
+    expect(open.map((row) => row.id)).toEqual([onTab.id]);
+    expect(open[0]).toMatchObject({ taskId: "t1", tabId: "wR:t1", paneId: "wR:p1" });
+    expect(await repo.findOpenByTabId("wR:t9")).toEqual([]);
+  });
+
   it("lists every open row and records the last seen status", async () => {
     const first = await acquire("t1", "host:1");
     const second = await acquire("t2", "host:2");

@@ -95,14 +95,17 @@ Hexagonal layers, three bounded contexts (`projects`, `tasks`, `dispatch`):
   (`POST /api/dispatch/close`). It refuses, non-zero, naming the pane, its agent
   and its status, when **any** pane in the tab has a `working`/`blocked`/`unknown`
   agent, an `idle` agent whose task is not `done`, or no recognized agent but a
-  foreground process. A refusal takes no action: the tab stays open. Do not
-  `herdr tab close` a tab you did not start.
+  foreground process. It also refuses while the ledger holds an open, lease-held
+  `dispatches` row for the tab whose task is not `done` — the join that catches a
+  dispatch which never wrote `tasks.herdr_pane_id` (DSP-10). A refusal takes no
+  action: the tab stays open. Do not `herdr tab close` a tab you did not start.
 - The decision is pure domain code (`assessTabClose` in
   `src/domain/dispatch/close-guard.ts`, unit-tested);
   `CloseHarnessUseCase` (`src/application/dispatch/close-harness/`) resolves the
-  facts — the tab's panes, each pane's task via `tasks.herdr_pane_id`, and the
-  foreground processes of an agent-less pane — and calls `HarnessPort.closeTab`
-  only on an allow. `closeTab` on the adapter stays dumb.
+  facts — the tab's panes, each pane's task via `tasks.herdr_pane_id`, the tab's
+  lease-held open dispatch rows via `dispatches.tab_id`, and the foreground
+  processes of an agent-less pane — and calls `HarnessPort.closeTab` only on an
+  allow. `closeTab` on the adapter stays dumb.
 - The foreground-process test comes from `pane.process_info` and **excludes the
   pane's own shell**: at a prompt the shell is the foreground process
   (`shell_pid`), which is a bare prompt, not work. With no `shell_pid` to compare

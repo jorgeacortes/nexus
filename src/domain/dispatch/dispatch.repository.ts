@@ -76,5 +76,12 @@ export interface DispatchRepository {
   findById(id: string): Promise<Dispatch | null>;
   /** The live (open) dispatch for a task, if any. */
   findOpenByTaskId(taskId: string): Promise<Dispatch | null>;
+  /**
+   * Every open row placed on the tab (`endedAt` null). The guard's second join
+   * (DSP-10): a dispatch that reached placement but crashed before writing
+   * `tasks.herdr_pane_id` leaves no task pointing at its pane, yet its row still
+   * names the tab. Ordered by `createdAt`, like `listOpen`.
+   */
+  findOpenByTabId(tabId: string): Promise<Dispatch[]>;
   findByTaskId(taskId: string): Promise<Dispatch[]>;
 }

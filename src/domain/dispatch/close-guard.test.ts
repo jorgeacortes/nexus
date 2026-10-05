@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assessTabClose,
+  type CloseGuardDispatch,
   type CloseGuardTask,
   type ClosePaneFacts,
   hasLiveAgent,
@@ -37,6 +38,10 @@ function foreground(): HarnessProcess {
 
 function facts(overrides: Partial<ClosePaneFacts> = {}): ClosePaneFacts {
   return { pane: pane(), task: null, processes: [], ...overrides };
+}
+
+function dispatchRow(overrides: Partial<CloseGuardDispatch> = {}): CloseGuardDispatch {
+  return { id: "d1", taskId: "t1", paneId: "wR:p1", task: task("in_progress"), ...overrides };
 }
 
 describe("assessTabClose — agents", () => {
@@ -116,6 +121,45 @@ describe("assessTabClose — one protected pane protects the tab", () => {
   });
 });
 
+describe("assessTabClose — open ledger rows (DSP-10)", () => {
+  it("refuses when an open row's task is not done, naming the dispatch", () => {
+    const assessment = assessTabClose(
+      [facts({ pane: agentPane("idle"), task: null })],
+      [dispatchRow({ id: "d-orphan", taskId: "t9", task: task("in_progress") })],
+    );
+    expect(assessment.closeable).toBe(false);
+    expect(assessment.blocks).toHaveLength(1);
+    expect(assessment.blocks[0].paneId).toBe("wR:p1");
+    expect(assessment.blocks[0].reason).toContain("d-orphan");
+    expect(assessment.blocks[0].reason).toContain("in_progress");
+  });
+
+  it("refuses an agent-less pane that is otherwise clear when a row is open", () => {
+    const assessment = assessTabClose([facts({ pane: pane(), processes: [] })], [dispatchRow()]);
+    expect(assessment.closeable).toBe(false);
+    expect(assessment.blocks[0].reason).toContain("open dispatch d1");
+  });
+
+  it("allows an open row whose task is done (DSP-8)", () => {
+    const assessment = assessTabClose([facts({ pane: pane(), processes: [] })], [dispatchRow({ task: task("done") })]);
+    expect(assessment.closeable).toBe(true);
+    expect(assessment.blocks).toEqual([]);
+  });
+
+  it("refuses when the row's task cannot be read", () => {
+    const assessment = assessTabClose([facts({ pane: pane() })], [dispatchRow({ taskId: "gone", task: null })]);
+    expect(assessment.closeable).toBe(false);
+    expect(assessment.blocks[0].reason).toContain("gone");
+    expect(assessment.blocks[0].reason).toContain("could not be read");
+  });
+
+  it("reports a row with no pane as a tab-level block", () => {
+    const assessment = assessTabClose([], [dispatchRow({ paneId: null })]);
+    expect(assessment.closeable).toBe(false);
+    expect(assessment.blocks[0].paneId).toBeNull();
+  });
+});
+
 describe("hasLiveAgent", () => {
   it("counts only a non-empty agent kind", () => {
     expect(hasLiveAgent({ agent: "pi" })).toBe(true);
@@ -136,5 +180,12 @@ describe("TabCloseRefusedError", () => {
     expect(error.message).toContain('agent "pi"');
     expect(error.message).toContain("working");
     expect(error.message).toContain("No action was taken");
+  });
+
+  it("renders a tab-level block without a pane prefix", () => {
+    const error = new TabCloseRefusedError({ tabId: "wR:tA", label: "" }, [
+      { paneId: null, agent: null, status: "unknown", reason: "open dispatch d1 owns a task that is not done" },
+    ]);
+    expect(error.message).toContain("• tab: open dispatch d1");
   });
 });

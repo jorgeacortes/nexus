@@ -172,6 +172,16 @@ export class DrizzleDispatchRepository implements DispatchRepository {
     return row ? toDomain(row) : null;
   }
 
+  async findOpenByTabId(tabId: string): Promise<Dispatch[]> {
+    return this.db
+      .select()
+      .from(dispatches)
+      .where(and(eq(dispatches.tabId, tabId), isNull(dispatches.endedAt)))
+      .orderBy(dispatches.createdAt)
+      .all()
+      .map(toDomain);
+  }
+
   async findByTaskId(taskId: string): Promise<Dispatch[]> {
     return this.db
       .select()

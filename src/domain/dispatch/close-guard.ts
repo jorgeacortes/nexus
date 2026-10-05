@@ -21,6 +21,13 @@
  * | agent `done` | allow |
  * | no recognized agent but a foreground process | refuse |
  * | bare prompt, no agent, no foreground process | allow |
+ * | an open, lease-held ledger row on the tab whose task is not `done` | refuse |
+ *
+ * The last row is the ledger's other direction (DSP-10): a dispatch that reached
+ * placement but never wrote `tasks.herdr_pane_id` leaves the pane-level join
+ * blind, while its open row still names the tab. A row whose *unstarted* lease
+ * has lapsed is not held and does not block — the bare shell such a crash left
+ * has nothing to lose, and `acquireLease` would supersede that row anyway.
  *
  * A status Herdr reports outside its enum is treated as `unknown` (refuse): the
  * failure mode of this guard must be "leave the tab open", never "kill work".
@@ -35,6 +42,21 @@ export type CloseGuardTask = {
   status: string;
 };
 
+/**
+ * One open ledger row placed on the tab (DESIGN-dispatch.md §2.2), the guard's
+ * second join. It is only resolved from the ledger when the row still holds its
+ * lease (`isLeaseHeld`), so a row that reached placement and then died unstarted
+ * is not treated as live work.
+ */
+export type CloseGuardDispatch = {
+  id: string;
+  taskId: string;
+  /** The pane the row placed the agent in; null if placement recorded none. */
+  paneId: string | null;
+  /** The row's task, resolved for its status; null when it cannot be read. */
+  task: CloseGuardTask | null;
+};
+
 /** Everything the guard knows about one pane in the tab. */
 export type ClosePaneFacts = {
   pane: HarnessPane;
@@ -46,7 +68,11 @@ export type ClosePaneFacts = {
 
 /** Why one pane forbids the close; the fields the refusal message names. */
 export type CloseBlock = {
-  paneId: string;
+  /**
+   * The pane that forbids the close, or null for a tab-level block (an open
+   * ledger row, which names the tab rather than a live pane).
+   */
+  paneId: string | null;
   /** The live agent kind, or null for a pane with no recognized agent. */
   agent: string | null;
   /** The pane's agent status, or "unknown" when it is not a Herdr agent. */
@@ -114,9 +140,36 @@ function blockFor(facts: ClosePaneFacts): CloseBlock | null {
   return null;
 }
 
-/** Evaluates one tab: closeable only when no pane in it is protected. */
-export function assessTabClose(facts: readonly ClosePaneFacts[]): TabCloseAssessment {
-  const blocks = facts.map((entry) => blockFor(entry)).filter((block): block is CloseBlock => block !== null);
+/**
+ * An open ledger row protects the tab while the task it names is not `done`.
+ * This is deliberately independent of the pane's own state: the row is the
+ * ledger's proof that a dispatch owns the tab, so it blocks even a pane whose
+ * agent is `done` or whose pane-level task is invisible.
+ */
+function blockForDispatch(dispatch: CloseGuardDispatch): CloseBlock | null {
+  if (dispatch.task?.status === "done") {
+    return null;
+  }
+  const target = dispatch.task
+    ? `task ${dispatch.task.id} "${dispatch.task.title}" (${dispatch.task.status})`
+    : `task ${dispatch.taskId}, whose row could not be read`;
+  return {
+    paneId: dispatch.paneId,
+    agent: null,
+    status: "unknown",
+    reason: `open dispatch ${dispatch.id} placed on this tab owns ${target}, which is not done`,
+  };
+}
+
+/** Evaluates one tab: closeable only when no pane and no open ledger row protects it. */
+export function assessTabClose(
+  facts: readonly ClosePaneFacts[],
+  openDispatches: readonly CloseGuardDispatch[] = [],
+): TabCloseAssessment {
+  const blocks = [
+    ...facts.map((entry) => blockFor(entry)),
+    ...openDispatches.map((row) => blockForDispatch(row)),
+  ].filter((block): block is CloseBlock => block !== null);
   return { closeable: blocks.length === 0, blocks };
 }
 
@@ -132,9 +185,11 @@ export class TabCloseRefusedError extends Error {
     readonly blocks: readonly CloseBlock[],
   ) {
     const label = tab.label ? ` "${tab.label}"` : "";
-    const details = blocks.map((block) => `  • pane ${block.paneId}: ${block.reason}`).join("\n");
+    const details = blocks
+      .map((block) => (block.paneId ? `  • pane ${block.paneId}: ${block.reason}` : `  • tab: ${block.reason}`))
+      .join("\n");
     super(
-      `Refusing to close tab ${tab.tabId}${label}: ${blocks.length} pane(s) still hold live work.\n${details}\n` +
+      `Refusing to close tab ${tab.tabId}${label}: ${blocks.length} blocker(s) still hold live work.\n${details}\n` +
         "No action was taken; the tab is still open. Close it from Herdr only if you are certain.",
     );
     this.name = "TabCloseRefusedError";
