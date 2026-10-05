@@ -14,7 +14,7 @@ import {
   agentNameForTask,
   choosePlacement,
   expandHome,
-  taskSlug,
+  taskTabLabel,
 } from "@/domain/dispatch/placement";
 import type { DispatchProjectPort } from "@/domain/dispatch/project-workspace";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
@@ -71,7 +71,9 @@ function isDispatchable(status: string): boolean {
  *    topology).
  * 2. **Ensure the workspace** for the task's project (DSP-3).
  * 3. **Place** the agent: reuse a bare shell pane in that workspace when it sits
- *    in the task's folder, otherwise create a tab labelled with the task slug.
+ *    in the task's folder (relabelling that tab with the task), otherwise create
+ *    a tab labelled with the task. The tab the agent lands in always carries the
+ *    task's label, never Herdr's `1`.
  * 4. **Start** the agent (`<slug>-<short-id>`), unique among live agents.
  * 5. **Assign**: push the dispatch prompt, then record the pane, agent and
  *    harness on the task.
@@ -120,7 +122,9 @@ export class DispatchTaskUseCase {
     try {
       const ensured = await this.deps.ensureWorkspace.execute(project);
       const folder = project.folderPath ? expandHome(project.folderPath) : null;
-      const placement = choosePlacement(await this.deps.harness.listPanes(ensured.workspace.workspaceId), folder);
+      const panes = await this.deps.harness.listPanes(ensured.workspace.workspaceId);
+      const placement = choosePlacement(panes, folder);
+      const tabLabel = taskTabLabel(task.title);
 
       let paneId: string;
       let tabId: string | null;
@@ -130,7 +134,7 @@ export class DispatchTaskUseCase {
         tabId = placement.pane.tabId || null;
         placed = "reused_pane";
       } else {
-        const created = await this.deps.harness.createTab(ensured.workspace.workspaceId, taskSlug(task.title), folder);
+        const created = await this.deps.harness.createTab(ensured.workspace.workspaceId, tabLabel, folder);
         paneId = created.rootPane.paneId;
         tabId = created.tab.tabId;
         placed = "created_tab";
@@ -143,6 +147,13 @@ export class DispatchTaskUseCase {
         tabId,
         paneId,
       });
+
+      // A reused tab is usually a workspace's root shell, which Herdr labels `1`;
+      // the agent is about to become its only tenant, so give it the task's name.
+      // A tab that already holds other panes is not ours to relabel.
+      if (placement.kind === "reuse" && tabId && panes.filter((pane) => pane.tabId === tabId).length === 1) {
+        await this.deps.harness.renameTab(tabId, tabLabel);
+      }
 
       const harness = task.harness ?? "pi";
       const agentName = agentNameForTask(task);

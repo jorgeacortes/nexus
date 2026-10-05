@@ -71,6 +71,7 @@ function fakeHarness(parts: { workspaces?: HarnessWorkspace[]; panes?: Record<st
         return workspace(`wNew${created.length}`, label);
       },
       createTab: unused,
+      renameTab: unused,
       startAgent: unused,
       closeTab: unused,
     },

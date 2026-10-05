@@ -433,6 +433,10 @@ export class HerdrClient implements HerdrPort, HarnessPort {
     return { tab: toTab(resultRecord(result.tab)), rootPane: toPane(resultRecord(result.root_pane)) };
   }
 
+  async renameTab(tabId: string, label: string): Promise<void> {
+    await this.call("tab.rename", { tab_id: tabId, label });
+  }
+
   /**
    * Starts an agent in an existing shell pane and waits until Herdr considers it
    * interactive.

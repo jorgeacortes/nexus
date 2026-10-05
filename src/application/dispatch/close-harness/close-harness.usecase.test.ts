@@ -64,6 +64,7 @@ function fakeHarness(options: {
     },
     createWorkspace: unused,
     createTab: unused,
+    renameTab: unused,
     startAgent: unused,
     closeTab: async (tabId) => {
       closedTabs.push(tabId);

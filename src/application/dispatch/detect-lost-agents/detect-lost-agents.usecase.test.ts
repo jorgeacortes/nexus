@@ -79,6 +79,7 @@ function fakeHarness(options: { workspaces?: string[]; panes?: HarnessPane[]; fa
       processes: async () => [],
       createWorkspace: unused,
       createTab: unused,
+      renameTab: unused,
       startAgent: unused,
       closeTab: unused,
     },

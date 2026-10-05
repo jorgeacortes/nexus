@@ -54,7 +54,7 @@ interface in `src/domain/dispatch/`, implemented by `HerdrClient` and wired in
 
 | read | write |
 | --- | --- |
-| `snapshot()` *(exists)*, `listWorkspaces()`, `listTabs(workspaceId)`, `listPanes(workspaceId)`, `agentStates()` *(exists as snapshot)*, `processes(paneId)` | `createWorkspace(label, cwd)`, `createTab(workspaceId, label, cwd)`, `startAgent(name, kind, paneId)`, `prompt(paneId, text)` *(exists)*, `closeTab(tabId)` |
+| `snapshot()` *(exists)*, `listWorkspaces()`, `listTabs(workspaceId)`, `listPanes(workspaceId)`, `agentStates()` *(exists as snapshot)*, `processes(paneId)` | `createWorkspace(label, cwd)`, `createTab(workspaceId, label, cwd)`, `renameTab(tabId, label)`, `startAgent(name, kind, paneId)`, `prompt(paneId, text)` *(exists)*, `closeTab(tabId)` |
 
 `closeTab()` on the adapter stays dumb: **the decision to refuse belongs in the
 application layer**, where it can read task state and be unit-tested.
@@ -87,9 +87,14 @@ application layer**, where it can read task state and be unit-tested.
    otherwise `createWorkspace(label = project name, cwd = project.folderPath)` and
    **persist the new id back onto the project**. That writeback is the repoint
    capability `03628cd3` needs; it also stops the dangling-pointer cascade for good.
-3. **Choose the place** (`placement.ts`): reuse an idle pane already inside that
-   workspace when one matches the task's folder, otherwise `createTab(label = task
-   slug)`. Default is *reuse if idle, else a new tab per task*.
+3. **Choose the place** (`placement.ts`): reuse a bare shell pane already inside
+   that workspace when one matches the task's folder, otherwise create a tab. The
+   tab the agent lands in is **labelled with the task either way**: `createTab`
+   gets `label = task label`, and a reused tab is renamed with `renameTab`. Reuse
+   is exactly what a *freshly created* workspace hits — its root shell sits in the
+   project folder — so the workspace keeps its single tab, now labelled with the
+   task instead of a stray `1`. Default is *reuse if idle, else a new tab per
+   task*.
 4. **Start the agent:** `startAgent(name, kind, paneId)` with
    `name = <task-slug>-<short-id>` — Herdr requires `[a-z][a-z0-9_-]{0,31}` and
    uniqueness among live agents. `kind` comes from the task's recorded harness.
@@ -97,6 +102,22 @@ application layer**, where it can read task state and be unit-tested.
    `herdrPaneId`/`agentName`/`harness` on the task (the existing assign path) and
    close the dispatch row's start fields.
 6. Return tab + pane; append the ephemeral check to the *caller's* log, not ours.
+
+Placement **takes over** a tab rather than adding to it: a dispatch-created
+workspace ends with **one** tab — the agent's, labelled with the task — not a
+second idle shell kept as company. The extra tab (option 1) was rejected as a
+persistent control tab: the last-tab fragility it would paper over is already
+handled by `ensureWorkspace` repairing a dead `herdrWorkspaceId` (step 2) and by
+§3.2's deliberate decision not to guard last-tab destruction, since an empty
+workspace is cheap to recreate from the project row. A reused tab is relabelled
+only when the agent will be its **only** tenant; a tab that already holds other
+panes is not ours to relabel.
+
+The tab label is the task slug **capped at 48 chars**, with `…` marking the cut
+and a word boundary preferred. Herdr caps nothing (`tab.create`/`tab.rename` take
+an unbounded string; verified against protocol 22), so without the cap an
+operator-authored title of any length would reach the tab bar — the operator's
+own tab labels are 4–16 chars, one task title here slugged to 88.
 
 ### 3.2 `close(tabId, {force})` — the guarded teardown
 A tab is protected if **any** pane in it matches:

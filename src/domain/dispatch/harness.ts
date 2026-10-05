@@ -80,6 +80,11 @@ export interface HarnessPort {
   /** Creates a tab in an existing workspace; `focus: false` for the same reason. */
   createTab(workspaceId: string, label: string, cwd: string | null): Promise<HarnessTabCreated>;
   /**
+   * Renames a tab. Placement calls it when it reuses an existing shell pane, so
+   * the tab the agent lands in is labelled with the task rather than Herdr's `1`.
+   */
+  renameTab(tabId: string, label: string): Promise<void>;
+  /**
    * Starts an agent in an existing shell pane. `timeoutMs` is how long Herdr may
    * wait for the agent to become interactive and named before it fails. Throws
    * when Herdr refuses or the wait expires. Never closes anything.

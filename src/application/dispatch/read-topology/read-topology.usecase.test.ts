@@ -63,6 +63,7 @@ function fakeHarness(parts: {
       processes: async () => [],
       createWorkspace: unused,
       createTab: unused,
+      renameTab: unused,
       startAgent: unused,
       closeTab: unused,
     },

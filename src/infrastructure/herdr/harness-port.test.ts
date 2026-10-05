@@ -259,6 +259,15 @@ describe("HerdrClient HarnessPort writes", () => {
     ]);
   });
 
+  it("renames a tab", async () => {
+    const { client, calls } = clientAnswering({
+      "tab.rename": { type: "tab_renamed", tab: { tab_id: "wN:t1", workspace_id: "wN", label: "dsp-2" } },
+    });
+
+    await expect(client.renameTab("wN:t1", "dsp-2")).resolves.toBeUndefined();
+    expect(calls).toEqual([{ method: "tab.rename", params: { tab_id: "wN:t1", label: "dsp-2" } }]);
+  });
+
   it("starts an agent in an existing pane, waiting until it is interactive", async () => {
     const { client, calls } = clientAnswering({
       "agent.start": { type: "agent_started" },

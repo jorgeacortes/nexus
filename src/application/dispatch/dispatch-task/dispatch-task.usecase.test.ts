@@ -53,6 +53,7 @@ type HarnessCalls = {
   createWorkspace: Array<{ label: string; cwd: string | null }>;
   listPanes: string[];
   createTab: Array<{ workspaceId: string; label: string; cwd: string | null }>;
+  renameTab: Array<{ tabId: string; label: string }>;
   startAgent: Array<{ name: string; kind: string; paneId: string; timeoutMs: number | undefined }>;
   closeTab: string[];
 };
@@ -63,7 +64,14 @@ function fakeHarness(options: { workspaces?: HarnessWorkspace[]; panes?: Harness
   calls: HarnessCalls;
   startedPanes: string[];
 } {
-  const calls: HarnessCalls = { createWorkspace: [], listPanes: [], createTab: [], startAgent: [], closeTab: [] };
+  const calls: HarnessCalls = {
+    createWorkspace: [],
+    listPanes: [],
+    createTab: [],
+    renameTab: [],
+    startAgent: [],
+    closeTab: [],
+  };
   const startedPanes: string[] = [];
   let createdWorkspaces = 0;
   let createdTabs = 0;
@@ -90,6 +98,9 @@ function fakeHarness(options: { workspaces?: HarnessWorkspace[]; panes?: Harness
         const tabId = `${workspaceId}:t${createdTabs}`;
         const rootPane = pane(`${workspaceId}:p${createdTabs}`, workspaceId);
         return { tab: tab(tabId, workspaceId, label), rootPane };
+      },
+      renameTab: async (tabId, label) => {
+        calls.renameTab.push({ tabId, label });
       },
       startAgent: async (name, kind, paneId, startOptions) => {
         calls.startAgent.push({ name, kind, paneId, timeoutMs: startOptions?.timeoutMs });
@@ -169,10 +180,10 @@ describe("DispatchTaskUseCase", () => {
     return { useCase, harness, prompts };
   }
 
-  async function readyTask(overrides: { projectId?: string | null; status?: "ready" | "done" } = {}) {
+  async function readyTask(overrides: { projectId?: string | null; status?: "ready" | "done"; title?: string } = {}) {
     return taskRepo.save({
       projectId: overrides.projectId === undefined ? project.id : overrides.projectId,
-      title: "Smoke: reply OK",
+      title: overrides.title ?? "Smoke: reply OK",
       description: "Reply with the single word OK, then stop.",
       status: overrides.status ?? "ready",
     });
@@ -186,6 +197,8 @@ describe("DispatchTaskUseCase", () => {
 
     expect(harness.calls.createWorkspace).toEqual([{ label: "dsp-smoke", cwd: FOLDER }]);
     expect(harness.calls.createTab).toEqual([{ workspaceId: "wNew1", label: "smoke-reply-ok", cwd: FOLDER }]);
+    // A created tab is born with the task's label, so it is never renamed.
+    expect(harness.calls.renameTab).toEqual([]);
     expect(harness.calls.startAgent).toHaveLength(1);
     expect(harness.calls.startAgent[0]?.kind).toBe("pi");
     expect(harness.calls.startAgent[0]?.timeoutMs).toBe(15_000);
@@ -228,6 +241,33 @@ describe("DispatchTaskUseCase", () => {
     expect(result.placement).toBe("reused_pane");
     expect(result.workspaceOutcome).toBe("matched");
     expect(result.dispatch.tabId).toBe("wR:t1");
+    // The reused tab (Herdr's `1`) is renamed to the task, never left bare.
+    expect(harness.calls.renameTab).toEqual([{ tabId: "wR:t1", label: "smoke-reply-ok" }]);
+  });
+
+  it("does not relabel a reused tab that already holds another pane", async () => {
+    const task = await readyTask();
+    const harness = fakeHarness({
+      workspaces: [workspace("wR", "dsp-smoke")],
+      panes: [pane("wR:p4", "wR"), pane("wR:p5", "wR", { agent: "claude", agentStatus: "working", tabId: "wR:t1" })],
+    });
+    const { useCase } = build({ harness });
+
+    const result = await useCase.execute(task.id);
+
+    expect(result.placement).toBe("reused_pane");
+    expect(harness.calls.renameTab).toEqual([]);
+  });
+
+  it("caps the tab label for a long title", async () => {
+    const task = await readyTask({ title: "a".repeat(120) });
+    const { useCase, harness } = build();
+
+    await useCase.execute(task.id);
+
+    const label = harness.calls.createTab[0]?.label ?? "";
+    expect(label.length).toBeLessThanOrEqual(48);
+    expect(label.endsWith("…")).toBe(true);
   });
 
   it("refuses a second dispatch of the same task by the lease, before any topology", async () => {

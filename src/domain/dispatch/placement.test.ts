@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { HarnessPane } from "@/domain/dispatch/harness";
-import { agentKindForHarness, agentNameForTask, choosePlacement, taskSlug } from "@/domain/dispatch/placement";
+import {
+  agentKindForHarness,
+  agentNameForTask,
+  choosePlacement,
+  taskSlug,
+  taskTabLabel,
+} from "@/domain/dispatch/placement";
 
 const FOLDER = "/tmp/dsp-smoke";
 
@@ -27,6 +33,28 @@ describe("taskSlug", () => {
 
   it("never returns an empty slug", () => {
     expect(taskSlug("!!!")).toBe("task");
+  });
+});
+
+describe("taskTabLabel", () => {
+  it("is the slug when the title already fits", () => {
+    expect(taskTabLabel("Smoke: reply OK")).toBe("smoke-reply-ok");
+  });
+
+  it("caps a long title at 48 chars, cutting on a word boundary with an ellipsis", () => {
+    const label = taskTabLabel(
+      "[DSP-9] Placement runs after ensureWorkspace, so a new workspace always reuses its tab",
+    );
+    expect(label.length).toBeLessThanOrEqual(48);
+    expect(label.endsWith("…")).toBe(true);
+    expect(label.startsWith("dsp-9-placement-runs-after")).toBe(true);
+    expect(label).not.toContain("-…");
+  });
+
+  it("hard-cuts a title that has no word boundary inside the cap", () => {
+    const label = taskTabLabel("a".repeat(120));
+    expect(label).toHaveLength(48);
+    expect(label.endsWith("…")).toBe(true);
   });
 });
 
