@@ -15,7 +15,7 @@ import {
   type Task,
   TaskValidationError,
 } from "@/domain/tasks/task";
-import { projectReference, taskRepo } from "@/infrastructure/container";
+import { finishedTaskDispatch, projectReference, taskRepo } from "@/infrastructure/container";
 
 const patchTaskSchema = z.object({
   projectId: z.string().nullable().optional(),
@@ -91,7 +91,7 @@ export async function PATCH(request: Request, context: RouteContext<"/api/tasks/
       });
     }
     if (body.status !== undefined) {
-      task = await new MoveTaskUseCase(taskRepo).execute(id, body.status);
+      task = await new MoveTaskUseCase(taskRepo, finishedTaskDispatch).execute(id, body.status);
     }
     if (body.needsHuman !== undefined) {
       task = await new FlagNeedsHumanUseCase(taskRepo).execute(id, body.needsHuman, body.needsHumanReason ?? null);

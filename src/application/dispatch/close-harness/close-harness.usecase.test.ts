@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { CloseHarnessUseCase, type PaneTaskPort } from "@/application/dispatch/close-harness";
+import {
+  type ClosedTabDispatchPort,
+  CloseHarnessUseCase,
+  type PaneTaskPort,
+} from "@/application/dispatch/close-harness";
 import { TabNotFoundError } from "@/application/dispatch/errors";
 import type { CloseGuardTask } from "@/domain/dispatch/close-guard";
 import { TabCloseRefusedError } from "@/domain/dispatch/close-guard";
@@ -27,14 +31,23 @@ function pane(overrides: Partial<HarnessPane> = {}): HarnessPane {
   };
 }
 
-/** A fake `HarnessPort` + `PaneTaskPort`: records closings and every read. */
+/** A fake `HarnessPort` + `PaneTaskPort` + dispatch ledger: records closings and every read. */
 function fakeHarness(options: {
   tab?: HarnessTab | null;
   panes?: HarnessPane[];
   processes?: Record<string, HarnessProcess[]>;
   tasks?: Record<string, CloseGuardTask>;
-}): { harness: HarnessPort; tasks: PaneTaskPort; closedTabs: string[]; processCalls: string[]; taskCalls: string[] } {
+}): {
+  harness: HarnessPort;
+  tasks: PaneTaskPort;
+  dispatches: ClosedTabDispatchPort;
+  closedTabs: string[];
+  endedDispatchTabs: string[];
+  processCalls: string[];
+  taskCalls: string[];
+} {
   const closedTabs: string[] = [];
+  const endedDispatchTabs: string[] = [];
   const processCalls: string[] = [];
   const taskCalls: string[] = [];
   const unused = () => {
@@ -62,7 +75,12 @@ function fakeHarness(options: {
       return options.tasks?.[paneId] ?? null;
     },
   };
-  return { harness, tasks, closedTabs, processCalls, taskCalls };
+  const dispatches: ClosedTabDispatchPort = {
+    endOpenForTab: async (tabId) => {
+      endedDispatchTabs.push(tabId);
+    },
+  };
+  return { harness, tasks, dispatches, closedTabs, endedDispatchTabs, processCalls, taskCalls };
 }
 
 describe("CloseHarnessUseCase", () => {
@@ -74,21 +92,24 @@ describe("CloseHarnessUseCase", () => {
     };
     const fake = fakeHarness(options);
 
-    const result = await new CloseHarnessUseCase(fake.harness, fake.tasks).execute(TAB);
+    const result = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute(TAB);
 
     expect(fake.closedTabs).toEqual([TAB]);
     expect(result.paneCount).toBe(1);
     expect(result.tab.tabId).toBe(TAB);
+    // The closed tab's open dispatch rows end as `closed` (DSP-8).
+    expect(fake.endedDispatchTabs).toEqual([TAB]);
   });
 
   it("refuses a working agent and never calls closeTab", async () => {
     const options = { tab: tab(TAB, WORKSPACE, "working"), panes: [pane({ agent: "pi", agentStatus: "working" })] };
     const fake = fakeHarness(options);
 
-    await expect(new CloseHarnessUseCase(fake.harness, fake.tasks).execute(TAB)).rejects.toBeInstanceOf(
-      TabCloseRefusedError,
-    );
+    await expect(
+      new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute(TAB),
+    ).rejects.toBeInstanceOf(TabCloseRefusedError);
     expect(fake.closedTabs).toEqual([]);
+    expect(fake.endedDispatchTabs).toEqual([]);
     expect(fake.taskCalls).toEqual(["wR:pE"]);
   });
 
@@ -100,19 +121,20 @@ describe("CloseHarnessUseCase", () => {
     };
     const fake = fakeHarness(options);
 
-    const error = await new CloseHarnessUseCase(fake.harness, fake.tasks)
+    const error = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches)
       .execute(TAB)
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(TabCloseRefusedError);
     expect((error as Error).message).toContain("in_progress");
     expect(fake.closedTabs).toEqual([]);
+    expect(fake.endedDispatchTabs).toEqual([]);
   });
 
   it("closes an idle agent that owns no task", async () => {
     const options = { tab: tab(TAB, WORKSPACE, "idle"), panes: [pane({ agent: "pi", agentStatus: "idle" })] };
     const fake = fakeHarness(options);
 
-    await new CloseHarnessUseCase(fake.harness, fake.tasks).execute(TAB);
+    await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute(TAB);
 
     expect(fake.closedTabs).toEqual([TAB]);
     // The foreground-process read is only for panes with no recognized agent.
@@ -126,18 +148,19 @@ describe("CloseHarnessUseCase", () => {
     };
     const fake = fakeHarness(options);
 
-    await expect(new CloseHarnessUseCase(fake.harness, fake.tasks).execute(TAB)).rejects.toBeInstanceOf(
-      TabCloseRefusedError,
-    );
+    await expect(
+      new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute(TAB),
+    ).rejects.toBeInstanceOf(TabCloseRefusedError);
     expect(fake.processCalls).toEqual(["wR:pE"]);
     expect(fake.closedTabs).toEqual([]);
+    expect(fake.endedDispatchTabs).toEqual([]);
   });
 
   it("closes a tab of bare prompt panes", async () => {
     const options = { panes: [pane({ paneId: "wR:pE", agent: null })] };
     const fake = fakeHarness(options);
 
-    await new CloseHarnessUseCase(fake.harness, fake.tasks).execute(TAB);
+    await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute(TAB);
 
     expect(fake.closedTabs).toEqual([TAB]);
     expect(fake.processCalls).toEqual(["wR:pE"]);
@@ -146,10 +169,11 @@ describe("CloseHarnessUseCase", () => {
   it("refuses an unknown tab and never calls closeTab", async () => {
     const fake = fakeHarness({ tab: null, panes: [] });
 
-    await expect(new CloseHarnessUseCase(fake.harness, fake.tasks).execute("wR:zz")).rejects.toBeInstanceOf(
-      TabNotFoundError,
-    );
+    await expect(
+      new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute("wR:zz"),
+    ).rejects.toBeInstanceOf(TabNotFoundError);
     expect(fake.closedTabs).toEqual([]);
+    expect(fake.endedDispatchTabs).toEqual([]);
   });
 
   it("ignores panes that belong to another tab of the same workspace", async () => {
@@ -162,7 +186,7 @@ describe("CloseHarnessUseCase", () => {
     };
     const fake = fakeHarness(options);
 
-    const result = await new CloseHarnessUseCase(fake.harness, fake.tasks).execute(TAB);
+    const result = await new CloseHarnessUseCase(fake.harness, fake.tasks, fake.dispatches).execute(TAB);
 
     expect(result.paneCount).toBe(1);
     expect(fake.closedTabs).toEqual([TAB]);

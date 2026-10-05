@@ -83,6 +83,39 @@ describe("DrizzleDispatchRepository", () => {
     expect(await repo.findOpenByTaskId("t1")).toBeNull();
   });
 
+  it("ends the task's open row as closed, freeing the lease", async () => {
+    const lease = await acquire();
+    await repo.recordStart(lease.id, { agentName: "smoke-46e044bf", harness: "pi", startedAt: NOW });
+
+    const ended = await repo.finishOpenForTask("t1", NOW);
+
+    expect(ended?.id).toBe(lease.id);
+    expect(ended?.outcome).toBe("closed");
+    expect(ended?.endedAt?.toISOString()).toBe(NOW.toISOString());
+    expect(await repo.findOpenByTaskId("t1")).toBeNull();
+    await expect(acquire("t1", "host:2")).resolves.toMatchObject({ outcome: null });
+  });
+
+  it("ends every open row placed on a tab, and leaves rows on other tabs open", async () => {
+    const onTab = await acquire("t1", "host:1");
+    await repo.recordPlacement(onTab.id, { workspaceId: "wR", tabId: "wR:t1", paneId: "wR:p1" });
+    await repo.recordStart(onTab.id, { agentName: "a", harness: "pi", startedAt: NOW });
+    const elsewhere = await acquire("t2", "host:2");
+    await repo.recordPlacement(elsewhere.id, { workspaceId: "wR", tabId: "wR:t2", paneId: "wR:p2" });
+    await repo.recordStart(elsewhere.id, { agentName: "b", harness: "pi", startedAt: NOW });
+
+    const ended = await repo.finishOpenForTab("wR:t1", NOW);
+
+    expect(ended.map((row) => row.id)).toEqual([onTab.id]);
+    expect((await repo.findById(onTab.id))?.outcome).toBe("closed");
+    expect((await repo.findById(elsewhere.id))?.outcome).toBeNull();
+  });
+
+  it("ends nothing when the task or tab has no open row", async () => {
+    expect(await repo.finishOpenForTask("t1", NOW)).toBeNull();
+    expect(await repo.finishOpenForTab("wR:t1", NOW)).toEqual([]);
+  });
+
   it("lists every open row and records the last seen status", async () => {
     const first = await acquire("t1", "host:1");
     const second = await acquire("t2", "host:2");

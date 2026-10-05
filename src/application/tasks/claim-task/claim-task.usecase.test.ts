@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import { ClaimTaskUseCase } from "@/application/tasks/claim-task";
 import { CompleteTaskUseCase } from "@/application/tasks/complete-task";
 import { TaskNotFoundError } from "@/application/tasks/errors";
+import type { FinishedTaskDispatchPort } from "@/domain/tasks/finished-task-dispatch";
 import type { LiveAgentInfo, LiveAgentPort } from "@/domain/tasks/live-agents";
 import { TaskAlreadyClaimedError, TaskTransitionError } from "@/domain/tasks/task";
 import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizzle-task.repository";
 import { createTestDb } from "@/test-support/db";
+
+const noDispatch: FinishedTaskDispatchPort = { endOpenForTask: async () => {} };
 
 function liveAgents(agents: LiveAgentInfo[] = []): LiveAgentPort {
   return { list: async () => agents };
@@ -114,7 +117,7 @@ describe("CompleteTaskUseCase", () => {
     const repo = new DrizzleTaskRepository(createTestDb());
     const task = await repo.save({ title: "finish me" });
     await new ClaimTaskUseCase(repo, liveAgents()).execute(task.id, { paneId: "wR:p1" });
-    const done = await new CompleteTaskUseCase(repo).execute(task.id, { notes: "commit deadbeef" });
+    const done = await new CompleteTaskUseCase(repo, noDispatch).execute(task.id, { notes: "commit deadbeef" });
     expect(done.status).toBe("done");
     expect(done.completionNotes).toBe("commit deadbeef");
   });
@@ -122,6 +125,6 @@ describe("CompleteTaskUseCase", () => {
   it("rejects completing a backlog task", async () => {
     const repo = new DrizzleTaskRepository(createTestDb());
     const task = await repo.save({ title: "not started" });
-    await expect(new CompleteTaskUseCase(repo).execute(task.id)).rejects.toThrow(TaskTransitionError);
+    await expect(new CompleteTaskUseCase(repo, noDispatch).execute(task.id)).rejects.toThrow(TaskTransitionError);
   });
 });

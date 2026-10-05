@@ -114,6 +114,8 @@ function fakeDispatches(open: Dispatch[]): {
       acquireLease: unused,
       recordPlacement: unused,
       recordStart: unused,
+      finishOpenForTask: unused,
+      finishOpenForTab: unused,
     },
   };
 }
@@ -197,7 +199,7 @@ describe("DetectLostAgentsUseCase", () => {
     expect(harness.listPanesCalls).toEqual(["wR"]);
   });
 
-  it("does not flag a vanished agent whose task is already done", async () => {
+  it("ends a vanished agent's row as closed when its task is already done", async () => {
     const { useCase, dispatches, tasks } = run({
       open: [dispatch()],
       tasks: { t1: { id: "t1", title: "DSP-6 detection", status: "done" } },
@@ -208,7 +210,8 @@ describe("DetectLostAgentsUseCase", () => {
 
     expect(result.lost).toEqual([]);
     expect(result.completed).toBe(1);
-    expect(dispatches.finishes).toEqual([]);
+    // The work is over, so the row must not hold the task's lease forever (DSP-8).
+    expect(dispatches.finishes).toEqual([{ id: "d1", outcome: "closed" }]);
     expect(tasks.flags).toEqual([]);
   });
 

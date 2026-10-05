@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { CompleteTaskUseCase } from "@/application/tasks/complete-task";
-import { taskRepo } from "@/infrastructure/container";
+import { finishedTaskDispatch, taskRepo } from "@/infrastructure/container";
 
 import { taskErrorResponse } from "../../_lib/errors";
 
@@ -19,7 +19,7 @@ export async function POST(request: Request, context: RouteContext<"/api/tasks/[
         { status: 400 },
       );
     }
-    const task = await new CompleteTaskUseCase(taskRepo).execute(id, parsed.data);
+    const task = await new CompleteTaskUseCase(taskRepo, finishedTaskDispatch).execute(id, parsed.data);
     return NextResponse.json({ data: task, error: null });
   } catch (error) {
     return taskErrorResponse(error);

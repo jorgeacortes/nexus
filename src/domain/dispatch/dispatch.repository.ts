@@ -52,6 +52,20 @@ export interface DispatchRepository {
   /** Ends an open row with an outcome. Never touches Herdr. */
   finish(id: string, outcome: DispatchOutcome, endedAt: Date): Promise<Dispatch>;
   /**
+   * Ends the task's open row — if any — as `closed`, the success outcome: the
+   * task reached `done`, so its work is over and the lease must stop being held
+   * (DSP-8). Returns the ended row, or null when the task had none. A ledger
+   * write only: it never touches Herdr. `failed` / `lost` / `expired` still go
+   * through `finish`, so this adds only the success case.
+   */
+  finishOpenForTask(taskId: string, endedAt: Date): Promise<Dispatch | null>;
+  /**
+   * Ends every open row placed on the tab as `closed` and returns them. The
+   * guarded close calls this once it has proved no pane in the tab holds live
+   * work (DSP-8). A ledger write only: Herdr is already closed by then.
+   */
+  finishOpenForTab(tabId: string, endedAt: Date): Promise<Dispatch[]>;
+  /**
    * Refreshes an open row's last observed agent status. A ledger write, never a
    * Herdr call: `detectLostAgents` runs it each sweep for panes still present so
    * a later sweep can name the status when the pane disappears.

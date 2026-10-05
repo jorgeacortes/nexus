@@ -123,6 +123,27 @@ export class DrizzleDispatchRepository implements DispatchRepository {
     return this.require(id);
   }
 
+  async finishOpenForTask(taskId: string, endedAt: Date): Promise<Dispatch | null> {
+    const open = this.selectOpen(taskId);
+    if (!open) return null;
+    return this.finish(open.id, "closed", endedAt);
+  }
+
+  async finishOpenForTab(tabId: string, endedAt: Date): Promise<Dispatch[]> {
+    const open = this.db
+      .select()
+      .from(dispatches)
+      .where(and(eq(dispatches.tabId, tabId), isNull(dispatches.endedAt)))
+      .all();
+    if (open.length === 0) return [];
+    this.db
+      .update(dispatches)
+      .set({ outcome: "closed", endedAt: endedAt.toISOString() })
+      .where(and(eq(dispatches.tabId, tabId), isNull(dispatches.endedAt)))
+      .run();
+    return Promise.all(open.map((row) => this.require(row.id)));
+  }
+
   async recordSeen(id: string, input: RecordSeenInput): Promise<void> {
     this.db
       .update(dispatches)

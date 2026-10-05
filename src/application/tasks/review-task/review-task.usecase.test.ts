@@ -4,18 +4,20 @@ import { ClaimTaskUseCase } from "@/application/tasks/claim-task";
 import { CompleteTaskUseCase } from "@/application/tasks/complete-task";
 import { ReviewRequiresDoneError, TaskNotFoundError } from "@/application/tasks/errors";
 import { ReviewTaskUseCase } from "@/application/tasks/review-task";
+import type { FinishedTaskDispatchPort } from "@/domain/tasks/finished-task-dispatch";
 import type { LiveAgentPort } from "@/domain/tasks/live-agents";
 import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizzle-task.repository";
 import { createTestDb } from "@/test-support/db";
 
 const noAgents: LiveAgentPort = { list: async () => [] };
+const noDispatch: FinishedTaskDispatchPort = { endOpenForTask: async () => {} };
 
 /** A repo with one `done` task, the only state a review is meaningful on. */
 async function doneTask() {
   const repo = new DrizzleTaskRepository(createTestDb());
   const task = await repo.save({ title: "finish me", status: "ready" });
   await new ClaimTaskUseCase(repo, noAgents).execute(task.id, { paneId: "wR:p1" });
-  await new CompleteTaskUseCase(repo).execute(task.id, { notes: "commit deadbeef" });
+  await new CompleteTaskUseCase(repo, noDispatch).execute(task.id, { notes: "commit deadbeef" });
   return { repo, id: task.id };
 }
 

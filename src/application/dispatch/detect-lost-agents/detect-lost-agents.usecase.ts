@@ -41,7 +41,7 @@ export type DetectLostAgentsResult = {
   checked: number;
   /** Panes still live whose last-seen status was refreshed. */
   live: number;
-  /** Dispatches skipped because their task is already `done`. */
+  /** Vanished panes whose task is already `done`: ended as `closed`, not flagged. */
   completed: number;
   lost: LostAgentFinding[];
 };
@@ -108,6 +108,9 @@ export class DetectLostAgentsUseCase {
       const verdict = assessVanishedAgent({ dispatch, task, lastSeenStatus: dispatch.lastSeenStatus });
       if (!verdict.lost) {
         completed += 1;
+        // The task is done and the pane is gone: the work is over, so the row
+        // ends as `closed` rather than holding the lease forever (DSP-8).
+        await this.deps.dispatches.finish(dispatch.id, "closed", now);
         continue;
       }
       // Flag first, then end the row: a crash between the two leaves the row

@@ -1,6 +1,10 @@
 import { hostname } from "node:os";
 
-import { CloseHarnessUseCase, type PaneTaskPort } from "@/application/dispatch/close-harness";
+import {
+  type ClosedTabDispatchPort,
+  CloseHarnessUseCase,
+  type PaneTaskPort,
+} from "@/application/dispatch/close-harness";
 import { DetectLostAgentsUseCase, type LostAgentTaskPort } from "@/application/dispatch/detect-lost-agents";
 import { DispatchTaskUseCase } from "@/application/dispatch/dispatch-task";
 import { EnsureWorkspaceUseCase } from "@/application/dispatch/ensure-workspace";
@@ -9,6 +13,7 @@ import type { HarnessPort } from "@/domain/dispatch/harness";
 import type { DispatchProjectPort, ProjectWorkspacePort } from "@/domain/dispatch/project-workspace";
 import type { ProjectRepository } from "@/domain/projects/project.repository";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
+import type { FinishedTaskDispatchPort } from "@/domain/tasks/finished-task-dispatch";
 import type { LiveAgentPort } from "@/domain/tasks/live-agents";
 import type { ProjectReferencePort } from "@/domain/tasks/project-reference";
 import type { TaskRepository } from "@/domain/tasks/task.repository";
@@ -105,8 +110,29 @@ export const paneTask: PaneTaskPort = {
   },
 };
 
+/**
+ * The tasks-context write for DSP-8: a task that reaches `done` ends its open
+ * dispatch row as `closed`, releasing the lease so it can be dispatched again
+ * later. `nx done` / the complete route and the board's move route both use it.
+ */
+export const finishedTaskDispatch: FinishedTaskDispatchPort = {
+  endOpenForTask: async (taskId) => {
+    await dispatchRepo.finishOpenForTask(taskId, new Date());
+  },
+};
+
+/**
+ * The dispatch-context write for DSP-8: the guarded close has just removed the
+ * tab, so every open row placed on it ends as `closed`.
+ */
+export const closedTabDispatches: ClosedTabDispatchPort = {
+  endOpenForTab: async (tabId) => {
+    await dispatchRepo.finishOpenForTab(tabId, new Date());
+  },
+};
+
 /** The guarded teardown `nx dispatch close` and `POST /api/dispatch/close` call. */
-export const closeHarness = new CloseHarnessUseCase(harness, paneTask);
+export const closeHarness = new CloseHarnessUseCase(harness, paneTask, closedTabDispatches);
 
 /**
  * The tasks-context read/write the lost-agent sweep needs: the task a dispatch

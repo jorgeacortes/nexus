@@ -17,6 +17,17 @@ export interface PaneTaskPort {
   findByHerdrPaneId(paneId: string): Promise<CloseGuardTask | null>;
 }
 
+/**
+ * The dispatch-ledger write the guarded close needs (DSP-8): once the tab is
+ * gone, no row placed on it can still hold live work, so every open row ends as
+ * `closed` and releases its lease. A narrow port — the same shape as
+ * `PaneTaskPort` — so the use case is unit-tested against a fake.
+ */
+export interface ClosedTabDispatchPort {
+  /** Ends every open row for the tab as `closed`. No-op when the ledger has none. */
+  endOpenForTab(tabId: string): Promise<void>;
+}
+
 export type CloseHarnessResult = {
   tab: HarnessTab;
   /** How many panes the guard evaluated before allowing the close. */
@@ -37,6 +48,7 @@ export class CloseHarnessUseCase {
   constructor(
     private readonly harness: HarnessPort,
     private readonly tasks: PaneTaskPort,
+    private readonly dispatches: ClosedTabDispatchPort,
   ) {}
 
   async execute(tabId: string): Promise<CloseHarnessResult> {
@@ -51,6 +63,9 @@ export class CloseHarnessUseCase {
       throw new TabCloseRefusedError(tab, assessment.blocks);
     }
     await this.harness.closeTab(tabId);
+    // The tab is gone and the guard proved no pane held live work, so every
+    // dispatch placed on it is finished: end its row as `closed` (DSP-8).
+    await this.dispatches.endOpenForTab(tabId);
     return { tab, paneCount: panes.length };
   }
 
