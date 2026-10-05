@@ -214,6 +214,14 @@ export type Task = {
   needsHumanReason: string | null;
   claimedAt: Date | null;
   completedAt: Date | null;
+  /**
+   * When the operator personally verified a finished task. Null = not reviewed;
+   * a date = reviewed at that moment (mirrors `completedAt`, so no separate
+   * boolean is needed). Set only for a `done` task, and cleared by any
+   * transition out of `done`. Never derived from status — `completeTask` leaves
+   * it null, keeping "agent finished" and "human verified" independent facts.
+   */
+  reviewedAt: Date | null;
   completionNotes: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -238,6 +246,11 @@ export type CreateTaskInput = {
   needsHumanReason?: string | null;
 };
 
+/**
+ * Fields `updateTask` may change. `reviewedAt` is an operator assertion set by
+ * `ReviewTaskUseCase`; the HTTP API never accepts a client-supplied timestamp,
+ * only the `reviewed` boolean that routes through that use case.
+ */
 export type UpdateTaskInput = {
   projectId?: string | null;
   title?: string;
@@ -252,6 +265,7 @@ export type UpdateTaskInput = {
   herdrPaneId?: string | null;
   needsHuman?: boolean;
   needsHumanReason?: string | null;
+  reviewedAt?: Date | null;
 };
 
 /** Statuses a task can be claimed from. */
@@ -409,6 +423,7 @@ export function createTask(input: CreateTaskInput): Task {
     needsHumanReason: input.needsHuman ? (input.needsHumanReason ?? null) : null,
     claimedAt: null,
     completedAt: null,
+    reviewedAt: null,
     completionNotes: null,
     createdAt: now,
     updatedAt: now,
@@ -448,6 +463,7 @@ export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
     ...observedAssignment(task, input, paneId),
     claimedAt: now,
     completedAt: null,
+    reviewedAt: null,
     completionNotes: null,
     updatedAt: now,
   };
@@ -505,6 +521,7 @@ export function completeTask(task: Task, input: CompleteTaskInput = {}): Task {
     needsHuman: false,
     needsHumanReason: null,
     completedAt: now,
+    reviewedAt: null,
     completionNotes: normalizeOptionalText(input.notes) ?? task.completionNotes,
     updatedAt: now,
   };
@@ -542,6 +559,10 @@ export function updateTask(task: Task, input: UpdateTaskInput): Task {
 
   const needsHuman = input.needsHuman ?? task.needsHuman;
 
+  // Review is only meaningful on a done task: any move out of `done` clears it,
+  // the same way a re-claim clears `completedAt`.
+  const reviewedAt = status === "done" ? (input.reviewedAt !== undefined ? input.reviewedAt : task.reviewedAt) : null;
+
   return {
     ...task,
     projectId: input.projectId !== undefined ? input.projectId : task.projectId,
@@ -563,6 +584,7 @@ export function updateTask(task: Task, input: UpdateTaskInput): Task {
         ? input.needsHumanReason
         : task.needsHumanReason
       : null,
+    reviewedAt,
     updatedAt: new Date(),
   };
 }

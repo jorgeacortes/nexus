@@ -28,6 +28,7 @@ export type Task = {
   needsHumanReason: string | null;
   claimedAt: string | null;
   completedAt: string | null;
+  reviewedAt: string | null;
   completionNotes: string | null;
   createdAt: string;
   updatedAt: string;

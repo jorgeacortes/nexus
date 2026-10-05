@@ -2,11 +2,12 @@ import type { Project } from "@/domain/projects/project";
 import type { Task } from "@/domain/tasks/task";
 
 /** JSON-safe task shape passed from Server Components to Client Components. */
-export type TaskDto = Omit<Task, "createdAt" | "updatedAt" | "claimedAt" | "completedAt"> & {
+export type TaskDto = Omit<Task, "createdAt" | "updatedAt" | "claimedAt" | "completedAt" | "reviewedAt"> & {
   createdAt: string;
   updatedAt: string;
   claimedAt: string | null;
   completedAt: string | null;
+  reviewedAt: string | null;
 };
 
 /** JSON-safe project shape passed from Server Components to Client Components. */
@@ -19,6 +20,7 @@ export function toTaskDto(task: Task): TaskDto {
     updatedAt: task.updatedAt.toISOString(),
     claimedAt: task.claimedAt?.toISOString() ?? null,
     completedAt: task.completedAt?.toISOString() ?? null,
+    reviewedAt: task.reviewedAt?.toISOString() ?? null,
   };
 }
 

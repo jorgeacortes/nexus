@@ -6,67 +6,97 @@ import { Button } from "@/components/ui/button";
 import type { ProjectDto } from "@/lib/dto";
 import { cn } from "@/lib/utils";
 
-import { NO_PROJECT_KEY, type ProjectFilter } from "./board-filter";
+import { NO_PROJECT_KEY, type ProjectFilter, type ReviewFilter } from "./board-filter";
 
 const NO_PROJECT_LABEL = "No project";
 
 /**
- * Project filter for the one board: an "All projects" chip plus a chip per
- * project with its task count, so what a filter hides is always visible. The
- * selection itself lives in `?project=` — the caller owns reading and writing it.
+ * Filters for the one board: project chips with their task counts, plus a
+ * "needs review" chip for done tasks the operator has not verified. Both the
+ * selection and the review queue live in the URL — the caller owns reading and
+ * writing them — and a chip always shows how much it is hiding.
  */
 export function BoardFilterBar({
   projects,
   counts,
   total,
   visible,
-  value,
-  onChange,
+  project,
+  review,
+  needsReview,
+  onProjectChange,
+  onReviewChange,
 }: {
   projects: ProjectDto[];
   counts: Map<string, number>;
   total: number;
   visible: number;
-  value: ProjectFilter;
-  onChange: (filter: ProjectFilter) => void;
+  project: ProjectFilter;
+  review: ReviewFilter;
+  needsReview: number;
+  onProjectChange: (filter: ProjectFilter) => void;
+  onReviewChange: (filter: ReviewFilter) => void;
 }) {
   const noProjectCount = counts.get(NO_PROJECT_KEY) ?? 0;
+  const filtered = project !== null || review !== null;
 
   return (
     <div className="flex items-center gap-2 border-b border-border px-4 py-2 md:px-6 md:py-2.5">
       <span className="hidden shrink-0 text-xs font-medium text-muted-foreground md:inline">Project</span>
       {/* One scrollable strip on a phone (the board needs the height), a wrapping row on desktop. */}
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-0.5 [scrollbar-width:none] md:flex-wrap md:overflow-x-visible [&::-webkit-scrollbar]:hidden">
-        <FilterChip label="All projects" count={total} active={value === null} onClick={() => onChange(null)} />
-        {projects.map((project) => (
+        <FilterChip
+          label="All projects"
+          count={total}
+          active={project === null}
+          onClick={() => onProjectChange(null)}
+        />
+        {projects.map((project_) => (
           <FilterChip
-            key={project.id}
-            label={project.name}
-            count={counts.get(project.id) ?? 0}
-            active={value === project.id}
-            onClick={() => onChange(value === project.id ? null : project.id)}
+            key={project_.id}
+            label={project_.name}
+            count={counts.get(project_.id) ?? 0}
+            active={project === project_.id}
+            onClick={() => onProjectChange(project === project_.id ? null : project_.id)}
           />
         ))}
         {noProjectCount > 0 ? (
           <FilterChip
             label={NO_PROJECT_LABEL}
             count={noProjectCount}
-            active={value === NO_PROJECT_KEY}
-            onClick={() => onChange(value === NO_PROJECT_KEY ? null : NO_PROJECT_KEY)}
+            active={project === NO_PROJECT_KEY}
+            onClick={() => onProjectChange(project === NO_PROJECT_KEY ? null : NO_PROJECT_KEY)}
           />
         ) : null}
       </div>
-      {value !== null ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
-            {visible} of {total} tasks
-          </span>
-          <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={() => onChange(null)}>
-            <X />
-            Clear
-          </Button>
-        </div>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-2">
+        <FilterChip
+          label="Needs review"
+          count={needsReview}
+          active={review !== null}
+          onClick={() => onReviewChange(review === null ? "needs-review" : null)}
+        />
+        {filtered ? (
+          <>
+            <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
+              {visible} of {total} tasks
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                onProjectChange(null);
+                onReviewChange(null);
+              }}
+            >
+              <X />
+              Clear
+            </Button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

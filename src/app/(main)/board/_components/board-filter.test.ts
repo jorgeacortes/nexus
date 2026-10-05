@@ -4,10 +4,16 @@ import type { ProjectDto, TaskDto } from "@/lib/dto";
 
 import {
   BOARD_PROJECT_PARAM,
+  BOARD_REVIEW_PARAM,
   hrefWithProjectFilter,
+  hrefWithReviewFilter,
   matchesProjectFilter,
+  matchesReviewFilter,
+  NEEDS_REVIEW_KEY,
   NO_PROJECT_KEY,
+  needsReviewCount,
   parseProjectFilter,
+  parseReviewFilter,
   projectFilterCounts,
   projectFilterKey,
 } from "./board-filter";
@@ -39,6 +45,7 @@ const task = (overrides: Partial<TaskDto> = {}): TaskDto => ({
   needsHumanReason: null,
   claimedAt: null,
   completedAt: null,
+  reviewedAt: null,
   completionNotes: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -97,6 +104,43 @@ describe("projectFilterCounts", () => {
     expect(counts.get("p2")).toBe(1);
     expect(counts.get(NO_PROJECT_KEY)).toBe(1);
     expect(counts.get("never-used")).toBeUndefined();
+  });
+});
+
+describe("review filter", () => {
+  it("parses only the known needs-review key", () => {
+    expect(parseReviewFilter(NEEDS_REVIEW_KEY)).toBe(NEEDS_REVIEW_KEY);
+    expect(parseReviewFilter(null)).toBeNull();
+    expect(parseReviewFilter("reviewed")).toBeNull();
+  });
+
+  it("matches done tasks that have no reviewedAt", () => {
+    const unreviewed = task({ status: "done", reviewedAt: null });
+    const reviewed = task({ status: "done", reviewedAt: "2026-10-04T08:00:00.000Z" });
+    const ready = task({ status: "ready" });
+
+    expect(matchesReviewFilter(unreviewed, null)).toBe(true);
+    expect(matchesReviewFilter(reviewed, null)).toBe(true);
+    expect(matchesReviewFilter(unreviewed, NEEDS_REVIEW_KEY)).toBe(true);
+    expect(matchesReviewFilter(reviewed, NEEDS_REVIEW_KEY)).toBe(false);
+    expect(matchesReviewFilter(ready, NEEDS_REVIEW_KEY)).toBe(false);
+  });
+
+  it("counts the unreviewed queue over every task", () => {
+    const count = needsReviewCount([
+      task({ status: "done" }),
+      task({ status: "done", reviewedAt: "2026-10-04T08:00:00.000Z" }),
+      task({ status: "in_progress" }),
+    ]);
+    expect(count).toBe(1);
+  });
+
+  it("writes and clears the review param, preserving unrelated params", () => {
+    expect(hrefWithReviewFilter("/board", NEEDS_REVIEW_KEY, new URLSearchParams())).toBe(
+      `/board?${BOARD_REVIEW_PARAM}=${NEEDS_REVIEW_KEY}`,
+    );
+    const current = new URLSearchParams(`${BOARD_REVIEW_PARAM}=${NEEDS_REVIEW_KEY}&project=p1`);
+    expect(hrefWithReviewFilter("/board", null, current)).toBe("/board?project=p1");
   });
 });
 

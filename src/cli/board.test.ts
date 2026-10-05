@@ -52,6 +52,7 @@ function task(overrides: Partial<Task> = {}): Task {
     needsHumanReason: null,
     claimedAt: null,
     completedAt: null,
+    reviewedAt: null,
     completionNotes: null,
     createdAt: "2026-10-04T08:00:00.000Z",
     updatedAt: "2026-10-04T08:00:00.000Z",

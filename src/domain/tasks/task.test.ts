@@ -287,6 +287,34 @@ describe("completeTask", () => {
   });
 });
 
+describe("reviewedAt", () => {
+  it("defaults to null and stays null through completion", () => {
+    expect(createTask({ title: "t" }).reviewedAt).toBeNull();
+
+    const done = completeTask(claimTask(createTask({ title: "t", status: "ready" }), { paneId: "wR:p1" }));
+    expect(done.status).toBe("done");
+    expect(done.reviewedAt).toBeNull();
+  });
+
+  it("is kept on a done task and cleared when the task leaves done", () => {
+    const done = completeTask(claimTask(createTask({ title: "t", status: "ready" }), { paneId: "wR:p1" }));
+    const reviewedAt = new Date("2026-10-04T08:00:00.000Z");
+    const reviewed = updateTask(done, { reviewedAt, needsHuman: false });
+    expect(reviewed.reviewedAt).toEqual(reviewedAt);
+
+    // A content edit on a done task leaves the verification in place.
+    expect(updateTask(reviewed, { title: "renamed" }).reviewedAt).toEqual(reviewedAt);
+
+    // Reopening clears it, the same way a re-claim clears completedAt.
+    expect(updateTask(reviewed, { status: "in_progress" }).reviewedAt).toBeNull();
+  });
+
+  it("never sets a review on a task that is not done", () => {
+    const ready = createTask({ title: "t", status: "ready" });
+    expect(updateTask(ready, { reviewedAt: new Date() }).reviewedAt).toBeNull();
+  });
+});
+
 describe("task priority", () => {
   it("defaults to normal on creation", () => {
     const task = createTask({ title: "Task with default priority" });

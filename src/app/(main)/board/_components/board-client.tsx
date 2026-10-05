@@ -17,11 +17,17 @@ import { PageHeader } from "../../_components/page-header";
 import { BoardColumn } from "./board-column";
 import {
   BOARD_PROJECT_PARAM,
+  BOARD_REVIEW_PARAM,
   hrefWithProjectFilter,
+  hrefWithReviewFilter,
   matchesProjectFilter,
+  matchesReviewFilter,
+  needsReviewCount,
   type ProjectFilter,
   parseProjectFilter,
+  parseReviewFilter,
   projectFilterCounts,
+  type ReviewFilter,
 } from "./board-filter";
 import { BoardFilterBar } from "./board-filter-bar";
 import { CreateTaskDialog } from "./create-task-dialog";
@@ -51,6 +57,7 @@ export function BoardClient({
     () => parseProjectFilter(searchParams.get(BOARD_PROJECT_PARAM), initialProjects),
     [searchParams, initialProjects],
   );
+  const reviewFilter = useMemo(() => parseReviewFilter(searchParams.get(BOARD_REVIEW_PARAM)), [searchParams]);
 
   // The selection belongs in the URL: a narrowed board survives a refresh and
   // can be shared. replaceState (not push) keeps the History stack clean while
@@ -58,6 +65,14 @@ export function BoardClient({
   const setProjectFilter = useCallback(
     (filter: ProjectFilter) => {
       const href = hrefWithProjectFilter(pathname, filter, new URLSearchParams(searchParams.toString()));
+      window.history.replaceState(null, "", href);
+    },
+    [pathname, searchParams],
+  );
+
+  const setReviewFilter = useCallback(
+    (filter: ReviewFilter) => {
+      const href = hrefWithReviewFilter(pathname, filter, new URLSearchParams(searchParams.toString()));
       window.history.replaceState(null, "", href);
     },
     [pathname, searchParams],
@@ -79,9 +94,11 @@ export function BoardClient({
   );
 
   const visibleTasks = useMemo(
-    () => tasks.filter((task) => matchesProjectFilter(task, projectFilter)),
-    [tasks, projectFilter],
+    () => tasks.filter((task) => matchesProjectFilter(task, projectFilter) && matchesReviewFilter(task, reviewFilter)),
+    [tasks, projectFilter, reviewFilter],
   );
+
+  const needsReviewTotal = useMemo(() => needsReviewCount(tasks), [tasks]);
 
   const byStatus = useMemo(() => {
     const grouped = new Map<TaskStatus, TaskDto[]>();
@@ -158,8 +175,11 @@ export function BoardClient({
         counts={filterCounts}
         total={tasks.length}
         visible={visibleTasks.length}
-        value={projectFilter}
-        onChange={setProjectFilter}
+        project={projectFilter}
+        review={reviewFilter}
+        needsReview={needsReviewTotal}
+        onProjectChange={setProjectFilter}
+        onReviewChange={setReviewFilter}
       />
       <DndProvider backend={HTML5Backend}>
         {/* Phone: one column at a time, snapping, with the next column peeking. Desktop: a wrapping-free row. */}

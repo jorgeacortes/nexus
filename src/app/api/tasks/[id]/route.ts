@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AssignTaskUseCase } from "@/application/tasks/assign-task";
 import { DeleteTaskUseCase } from "@/application/tasks/delete-task";
-import { ProjectReferenceNotFoundError, TaskNotFoundError } from "@/application/tasks/errors";
+import { ProjectReferenceNotFoundError, ReviewRequiresDoneError, TaskNotFoundError } from "@/application/tasks/errors";
 import { FlagNeedsHumanUseCase } from "@/application/tasks/flag-needs-human";
 import { MoveTaskUseCase } from "@/application/tasks/move-task";
+import { ReviewTaskUseCase } from "@/application/tasks/review-task";
 import { UpdateTaskUseCase } from "@/application/tasks/update-task";
 import {
   ASSIGNEE_TYPES,
@@ -30,6 +31,7 @@ const patchTaskSchema = z.object({
   herdrPaneId: z.string().nullable().optional(),
   needsHuman: z.boolean().optional(),
   needsHumanReason: z.string().nullable().optional(),
+  reviewed: z.boolean().optional(),
 });
 
 export async function GET(_request: Request, context: RouteContext<"/api/tasks/[id]">) {
@@ -94,6 +96,9 @@ export async function PATCH(request: Request, context: RouteContext<"/api/tasks/
     if (body.needsHuman !== undefined) {
       task = await new FlagNeedsHumanUseCase(taskRepo).execute(id, body.needsHuman, body.needsHumanReason ?? null);
     }
+    if (body.reviewed !== undefined) {
+      task = await new ReviewTaskUseCase(taskRepo).execute(id, body.reviewed);
+    }
     return NextResponse.json({ data: task, error: null });
   } catch (error) {
     return errorResponse(error);
@@ -114,7 +119,11 @@ function errorResponse(error: unknown): NextResponse {
   if (error instanceof TaskNotFoundError) {
     return NextResponse.json({ data: null, error: error.message }, { status: 404 });
   }
-  if (error instanceof TaskValidationError || error instanceof ProjectReferenceNotFoundError) {
+  if (
+    error instanceof TaskValidationError ||
+    error instanceof ProjectReferenceNotFoundError ||
+    error instanceof ReviewRequiresDoneError
+  ) {
     return NextResponse.json({ data: null, error: error.message }, { status: 400 });
   }
   return NextResponse.json(

@@ -93,6 +93,23 @@ describe("DrizzleTaskRepository", () => {
     expect(done.completionNotes).toBe("PR #7");
   });
 
+  it("round-trips reviewedAt and clears it when the task leaves done", async () => {
+    const saved = await repo.save({ title: "review me" });
+    await repo.claim(saved.id, { paneId: "wR:p1" });
+    await repo.complete(saved.id, {});
+
+    const reviewedAt = new Date("2026-10-04T08:00:00.000Z");
+    const reviewed = await repo.update(saved.id, { reviewedAt });
+    expect(reviewed.reviewedAt?.toISOString()).toBe(reviewedAt.toISOString());
+
+    const reread = await repo.findById(saved.id);
+    expect(reread?.reviewedAt?.toISOString()).toBe(reviewedAt.toISOString());
+
+    const moved = await repo.update(saved.id, { status: "in_progress" });
+    expect(moved.reviewedAt).toBeNull();
+    expect((await repo.findById(saved.id))?.reviewedAt).toBeNull();
+  });
+
   it("persists priority on save and update", async () => {
     const saved = await repo.save({ title: "prio", priority: "blocker" });
     expect(saved.priority).toBe("blocker");

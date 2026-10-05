@@ -1,5 +1,6 @@
 "use client";
 
+import { BadgeCheck } from "lucide-react";
 import { useDrag } from "react-dnd";
 import { ModelTag } from "@/components/model-tag";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +98,16 @@ export function TaskCard({
         {projectName ? (
           <Badge variant="outline" className="max-w-full truncate text-muted-foreground">
             {projectName}
+          </Badge>
+        ) : null}
+        {task.reviewedAt ? (
+          <Badge
+            variant="outline"
+            title={`Reviewed ${new Date(task.reviewedAt).toLocaleString()}`}
+            className="gap-1 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+          >
+            <BadgeCheck className="size-3" />
+            Reviewed
           </Badge>
         ) : null}
         <AssigneeChip task={task} />

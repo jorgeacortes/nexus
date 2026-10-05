@@ -12,6 +12,7 @@
  *   nx project add|list
  *   nx task add|list|show
  *   nx claim <id> / nx done <id> [--notes] / nx need <id> [--reason]
+ *   nx review <id> [--undo]       record the operator's verification of a done task
  *   nx board [--watch [seconds]]
  *   nx assign <id> --to <pane-id|auto>
  *
@@ -84,7 +85,7 @@ function envValue(name: string): string | null {
 }
 
 /** Flags that never take a value, so the next token stays a positional. */
-const BOOLEAN_FLAGS = new Set(["json", "force"]);
+const BOOLEAN_FLAGS = new Set(["json", "force", "undo"]);
 
 /** Parses `--key value`, `--key=value`, and `--flag`; `--watch` keeps a bare numeric value. */
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -357,6 +358,7 @@ async function taskCommand(argv: string[]): Promise<void> {
         ["pane", orDash(task.herdrPaneId)],
         ["claimed", orDash(task.claimedAt)],
         ["completed", orDash(task.completedAt)],
+        ["reviewed", orDash(task.reviewedAt)],
         ["needs human", task.needsHuman ? (task.needsHumanReason ?? "yes") : "no"],
         ["description", orDash(task.description)],
         ["notes", orDash(task.completionNotes)],
@@ -463,6 +465,37 @@ async function needCommand(argv: string[]): Promise<void> {
   output(flags, updated, () =>
     console.log(`Flagged #${shortId(updated.id)} as needing human — ${orDash(updated.needsHumanReason)}`),
   );
+}
+
+/**
+ * `nx review` records that the OPERATOR personally verified a done task.
+ *
+ * This is an operator assertion, never an agent self-assessment: an agent may
+ * run it only when the operator has explicitly confirmed, in the conversation,
+ * that they reviewed the task. "Tests pass" / "looks done" / "I finished it"
+ * is not a review.
+ */
+async function reviewCommand(argv: string[]): Promise<void> {
+  const { positionals, flags } = parseArgs(argv);
+  if (!positionals[0]) {
+    throw new CliError("Usage: nx review <id> [--undo]");
+  }
+  const undo = hasFlag(flags, "undo");
+  const task = resolveTask(positionals[0], await listTasks());
+  const updated = await request<Task>(`/api/tasks/${task.id}`, {
+    method: "PATCH",
+    body: { reviewed: !undo },
+  });
+  output(flags, updated, () => {
+    if (updated.reviewedAt) {
+      console.log(`Reviewed #${shortId(updated.id)} ${updated.title} — ${new Date(updated.reviewedAt).toISOString()}`);
+      console.log(
+        "This records the OPERATOR's personal verification, not an agent self-assessment — only run it when they confirmed they reviewed the work.",
+      );
+      return;
+    }
+    console.log(`Cleared review on #${shortId(updated.id)} ${updated.title}`);
+  });
 }
 
 async function loadBoard(): Promise<{ rows: ReturnType<typeof buildBoardRows>; live: LiveAgentsPayload }> {
@@ -640,11 +673,16 @@ function usage(): void {
   nx claim <id>                  claim for this Herdr pane ($HERDR_PANE_ID)
   nx done <id> [--notes <text>]  complete the task
   nx need <id> [--reason <t>]    flag the task as needing the operator
+  nx review <id> [--undo]        record the OPERATOR's verification of a done task (or clear it)
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
   nx assign <id> --to <pane-id|auto>  push the task's prompt into a Herdr pane
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
   --force writes to a probed board that has no projects.
+
+  nx review is an operator assertion, never an agent self-assessment: an agent
+  may run it only when the operator has explicitly confirmed they reviewed the
+  task. Running the tests, or the work merely looking finished, is not a review.
 
   The board comes from NEXUS_URL, then ${configPath()}, then the first of
   ${candidateUrls().join(", ")} that answers.`);
@@ -681,6 +719,9 @@ async function main(): Promise<void> {
       return;
     case "need":
       await needCommand(rest);
+      return;
+    case "review":
+      await reviewCommand(rest);
       return;
     case "board":
       await boardCommand(rest);

@@ -28,6 +28,39 @@ export function projectFilterKey(task: TaskDto): string {
   return task.projectId ?? NO_PROJECT_KEY;
 }
 
+/**
+ * The "needs review" filter is a second, independent narrowing of the same
+ * board: done tasks the operator has not personally verified yet. Like the
+ * project filter it lives in the URL (`?review=needs-review`) so the queue
+ * survives a refresh and can be shared.
+ */
+export const BOARD_REVIEW_PARAM = "review";
+
+/** Filter key for the unreviewed queue. */
+export const NEEDS_REVIEW_KEY = "needs-review";
+
+/** `null` = every done task (the default); otherwise the needs-review queue. */
+export type ReviewFilter = typeof NEEDS_REVIEW_KEY | null;
+
+/** Reads `?review=`; any value other than the known key falls back to "all". */
+export function parseReviewFilter(raw: string | null): ReviewFilter {
+  return raw === NEEDS_REVIEW_KEY ? NEEDS_REVIEW_KEY : null;
+}
+
+/** A reviewed task is `done` with a `reviewedAt`; the queue is done without one. */
+export function needsReview(task: TaskDto): boolean {
+  return task.status === "done" && task.reviewedAt === null;
+}
+
+export function matchesReviewFilter(task: TaskDto, filter: ReviewFilter): boolean {
+  return filter === null || needsReview(task);
+}
+
+/** How many tasks the needs-review filter would show, over every task. */
+export function needsReviewCount(tasks: TaskDto[]): number {
+  return tasks.filter(needsReview).length;
+}
+
 export function matchesProjectFilter(task: TaskDto, filter: ProjectFilter): boolean {
   return filter === null || projectFilterKey(task) === filter;
 }
@@ -45,13 +78,25 @@ export function projectFilterCounts(tasks: TaskDto[]): Map<string, number> {
   return counts;
 }
 
-/** Builds the board URL for a filter, preserving any unrelated query params. */
+/** Builds the board URL for a project filter, preserving any unrelated query params. */
 export function hrefWithProjectFilter(pathname: string, filter: ProjectFilter, current: URLSearchParams): string {
   const params = new URLSearchParams(current.toString());
   if (filter === null) {
     params.delete(BOARD_PROJECT_PARAM);
   } else {
     params.set(BOARD_PROJECT_PARAM, filter);
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+/** Builds the board URL for the needs-review filter, preserving any unrelated query params. */
+export function hrefWithReviewFilter(pathname: string, filter: ReviewFilter, current: URLSearchParams): string {
+  const params = new URLSearchParams(current.toString());
+  if (filter === null) {
+    params.delete(BOARD_REVIEW_PARAM);
+  } else {
+    params.set(BOARD_REVIEW_PARAM, filter);
   }
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;

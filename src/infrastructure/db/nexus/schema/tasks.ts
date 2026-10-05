@@ -25,6 +25,7 @@ export const tasks = sqliteTable(
     needsHumanReason: text("needs_human_reason"),
     claimedAt: text("claimed_at"),
     completedAt: text("completed_at"),
+    reviewedAt: text("reviewed_at"),
     completionNotes: text("completion_notes"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),

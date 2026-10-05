@@ -49,6 +49,30 @@ Hexagonal layers, two bounded contexts (`projects`, `tasks`):
 
 `projects` and `tasks` are the only bounded contexts. Do not cross DB boundaries with SQL joins; every integration (Herdr, future agent providers) is an application-level port implemented in `src/infrastructure/`.
 
+## Reviewed tasks (`reviewedAt`)
+
+- `reviewedAt` is a nullable timestamp on a task recording that the **operator
+  personally verified** a finished task. It mirrors `completedAt`: null = not
+  reviewed, a date = reviewed then. There is no `reviewed` boolean and no `review`
+  column — the board keeps its five columns, and the timestamp is the flag.
+- It is **never derived from status**. `completeTask` (`nx done`) leaves it null,
+  so "agent finished" and "human verified" stay independent facts. It is only
+  meaningful on a `done` task: marking reviewed requires `done`, and any move out
+  of `done` clears it (`updateTask`).
+- Write paths: the detail-sheet "Reviewed" toggle (`PATCH { reviewed: boolean }`,
+  routed through `ReviewTaskUseCase` in `src/application/tasks/review-task/`) and
+  `nx review <id> [--undo]`. Marking reviewed also clears `needs_human`: a done
+  task flagged needs-human is awaiting review, so reviewing takes the ball out of
+  the operator's court.
+- **Agent guardrail.** `reviewedAt` is an operator assertion, never an agent
+  self-assessment. An agent may record a review **only** when the operator has
+  explicitly confirmed — in the conversation — that they personally reviewed the
+  task. An agent must never mark its own work reviewed, and must not treat "tests
+  pass / looks done / I finished it" as a review. `nx review` is deliberately
+  absent from the dispatch prompt (`buildDispatchPrompt`).
+- Web affordances: the detail-sheet toggle, a check badge on the card (date in
+  the tooltip), and a "Needs review" board filter (`done` with no `reviewedAt`).
+
 ## Herdr integration
 
 - Herdr exposes a JSON-RPC API over a Unix socket via `herdr api snapshot` / schema-driven methods. Do not guess the protocol; `herdr api schema --json` is the source of truth for methods and params.

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Trash2, TriangleAlert } from "lucide-react";
+import { BadgeCheck, CircleAlert, Trash2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -57,6 +57,8 @@ export function TaskDetailSheet({
   });
   const [needsHuman, setNeedsHuman] = useState(task?.needsHuman ?? false);
   const [needsHumanReason, setNeedsHumanReason] = useState(task?.needsHumanReason ?? "");
+  const originallyReviewed = task?.reviewedAt != null;
+  const [reviewed, setReviewed] = useState(originallyReviewed);
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -74,6 +76,10 @@ export function TaskDetailSheet({
           ...assignment,
           needsHuman,
           needsHumanReason: needsHuman ? needsHumanReason || null : null,
+          // Only send a review change; the server owns the timestamp, and a
+          // no-op save must not reset an existing review date. Moving out of
+          // done clears the review server-side, so no flag is needed there.
+          ...(status === "done" && reviewed !== originallyReviewed ? { reviewed } : {}),
         }),
       });
       onUpdated(updated);
@@ -232,6 +238,27 @@ export function TaskDetailSheet({
 
           {task?.completionNotes ? (
             <p className="text-xs text-muted-foreground">Notes: {task.completionNotes}</p>
+          ) : null}
+
+          {status === "done" ? (
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <Button
+                type="button"
+                variant={reviewed ? "default" : "outline"}
+                size="sm"
+                aria-pressed={reviewed}
+                className={cn(reviewed && "bg-emerald-600 text-white hover:bg-emerald-600/90")}
+                onClick={() => setReviewed((value) => !value)}
+              >
+                <BadgeCheck />
+                {reviewed ? "Reviewed" : "Mark reviewed"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {task?.reviewedAt && reviewed
+                  ? `You personally verified this task ${relativeTime(task.reviewedAt)}. Toggling off clears it.`
+                  : "Only mark a task reviewed once you have personally verified the work — it is not an agent self-assessment."}
+              </p>
+            </div>
           ) : null}
 
           <Separator />
