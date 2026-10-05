@@ -22,10 +22,10 @@ Three things must not be conflated, because they have different homes:
 | **Dispatch** | hand that job's prompt to a Herdr pane | Herdr (CLI/socket), via the edge Nexus already has |
 | **Execute** | actually do the work | a Herdr pane (full harness). Not an in-process session |
 
-The recommendation (§4) is a **two-stage** answer: a one-shot, cron-driven tick
-over rows in Nexus **now** (no daemon, no new service), and folding the same jobs
-into the **Pi Durable conductor** as durable tasks when that lands. NagaBot stays
-the front door and the *brain*, not the dispatcher.
+The recommendation (§4) is one small thing: a `jobs` table in the Nexus SQLite DB
+and one `runDueJobs()` function invoked by a single-instance runner (a `jobs`
+service in the compose file, or a systemd timer). NagaBot stays the front door and
+the *brain*, not the dispatcher. Pi Durable answers a different question (§4.1).
 
 ## 1. What "periodic dispatcher" actually covers
 
@@ -64,11 +64,11 @@ belong next to it.
 | # | Option | Job state | Who ticks | Dispatch to | New code | Ops burden | Unattended reliability | Fit |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | **Cron/systemd timer → `nx assign`** | Nexus tasks (no new columns) | systemd | existing pane | ~0 (one unit file) | none | medium: no lease, no retry, needs a pane to pre-exist | good to prove the loop today |
-| 2 | **Nexus job table + one-shot `nx job tick`, run by systemd timer** | Nexus SQLite (migration) | systemd (every minute) | pane; + spawn | small (schema, tick, dispatch adapter) | none beyond the timer | high: lease + retry + run history, survives restart by construction | **recommended stage 1** |
+| 2 | **Nexus job table + one `nx job tick`** | Nexus SQLite (migration) | one invoker (§4.1) | pane; + spawn | small (schema, tick, dispatch adapter) | none beyond the invoker | high: lease + retry + run history, survives restart by construction | **recommended** |
 | 3 | **Resident scheduler daemon inside Nexus** | Nexus SQLite | the Next.js process | pane | medium | a daemon to supervise | medium | **rejected** — breaks the non-goal; Next.js request/response is the wrong host for a long loop |
 | 4 | **NagaBot routines as the dispatcher** | `.nagabot/routines.json` (per workspace) | NagaBot's 60 s loop | its own in-process pi session (not Herdr) | small (add herdr tool + mount socket) | low, but widens the sandbox | medium: at-least-once, no lease/retry; a crash before `nextRunAt` advances re-runs | runner-up, for self-contained agent jobs |
 | 5 | **Herdr-native scheduler** | — | — | — | large | — | — | **not an option**: Herdr has no scheduling primitive, and should not grow one |
-| 6 | **Pi Durable conductor: each job is a durable task that `sleep`s to `next_run_at`** | conductor SQLite/JSONL documents | the harness task scheduler | Herdr bridge (spawn/prompt/wait/read) | medium (the conductor from `DESIGN-agent-orchestrator.md`) | one service | **high**: checkpoints, resume after crash, exact-once submissions, tasks that wait | **recommended stage 2 / target** |
+| 6 | **Pi Durable conductor: each job is a durable task that `sleep`s to `next_run_at`** | conductor SQLite/JSONL documents | the harness task scheduler | Herdr bridge (spawn/prompt/wait/read) | medium (the conductor from `DESIGN-agent-orchestrator.md`) | one service | **high**: checkpoints, resume after crash, exact-once submissions, tasks that wait | **not now** — it answers the orchestrator question (`28fed253`), not this one; a Herdr pane cannot be checkpointed, so it does not protect the work this dispatcher hands off |
 | 7 | **Broker queue** (BullMQ / Agenda / pg-boss) | Redis / Mongo / Postgres | worker process | pane | medium | a broker + a worker to run and supervise | high on retries, but adds a datastore | over-built: another DB for one host |
 | 8 | **Platform** (Windmill, Hatchet, Temporal, n8n, Kestra) | its DB | its server | HTTP/script; a Herdr call needs a bridge container with the socket | integration | **high**: server + DB ± Redis ± UI to run and upgrade | high | real value at team scale; tax here |
 | 9 | **MCP "cron" server** | in-memory / its own file | the MCP client's session | whatever the tool shells to | small | none | **low**: not durable, tied to a session that must be alive; no catch-up | not for unattended |
@@ -88,17 +88,16 @@ Two notes on the tempting rows:
 
 ## 4. Recommendation
 
-**Stage 1 — job rows in Nexus, one-shot tick from a systemd timer. No daemon.**
+**Job rows in Nexus SQLite, one `runDueJobs()` function, one single-instance
+invoker. No new datastore, no queue, no Pi Durable.**
 
 - **Storage:** a `jobs` table in the Nexus SQLite DB (a Drizzle migration like
   the others), plus a `job_runs` table for history. This keeps the one honest
   board: a human sees and edits jobs in the same place as tasks.
-- **Trigger:** `systemd` timer, `OnCalendar=*:0/1` (every minute) with
-  `Persistent=true`, executing `nx job tick`. **A one-shot process, not a
-  resident loop** — this is the line that keeps `PLAN.md`'s non-goal intact
-  (*no dispatcher daemon*), while still giving catch-up after downtime and a real
-  log. Cron would also work; the timer is better for exactly the reason this
-  task exists (missed runs must not be silently skipped).
+- **The tick is one function, not a service.** `runDueJobs()` reads the due rows,
+  leases them, dispatches, and records; expose it as `nx job tick` (a one-shot
+  CLI) and let any invoker call the same function. Placement then becomes an ops
+  choice (§4.1) you can change without a rewrite.
 - **Tick semantics:** read `enabled AND next_run_at <= now`, take a lease per row
   (`lease_owner`, `lease_until`) inside one SQLite transaction, dispatch each, then
   advance `next_run_at` and write a `job_runs` row. At-least-once with a lease is
@@ -123,13 +122,42 @@ Two notes on the tempting rows:
   require the approval gate from `DESIGN-agent-orchestrator.md`. Unattended token
   spend is the real risk here, not disk.
 
-**Stage 2 — move the job definitions into the Pi Durable conductor when it lands.**
-A job becomes a durable task that dispatches, captures the artifact, and calls
-`runtime.sleep(next_run_at)` — which also survives a restart. Then the external
-timer disappears; Nexus keeps only the projection (a job list and its run history)
-that a human reads and edits. This is a *continuation* of stage 1, not a rewrite:
-the `jobs` schema and the dispatch adapter carry over as the conductor's document
-type and Herdr bridge.
+### 4.1 Where the tick runs
+
+The container already has what a tick needs: the SQLite file at `./data`, the
+Herdr socket at `/herdr/herdr.sock`, and the image carries `scripts/` + `tsx`, so
+`nx job tick` runs inside it as-is. Every placement below works; they differ in
+blast radius and in where the config lives.
+
+| Placement | Self-contained | Failure isolation | Notes |
+| --- | --- | --- | --- |
+| `setInterval` inside `next start` | best | **worst** | board and scheduler are one process: an unhandled scheduler error restarts the container and the board goes down with it — exactly when you want the board to show the failure; `next dev` HMR and any future replica duplicate the timer. **Rejected** |
+| second process in the same container | good | poor | possible (`init: true`; the entrypoint `exec`s its args), but shared logs and no separate restart policy |
+| **`jobs` service in the same `docker-compose.yml`** | good | **good** | same image, same `./data` and `/herdr` mounts, own `restart:` and `docker compose logs jobs`; still no host config. **Preferred** |
+| **systemd timer → `nx job tick`** | weak | best | no new container, `Persistent=true` catch-up, `journalctl`; but the unit is repo-external config — the fragility the Nexus backup task (`4626eec6`) already has to document |
+| cron line → `nx job tick` | weak | best | as above, without catch-up |
+
+Two details are not optional whichever invoker you pick: open the DB with a
+`busy_timeout` (better-sqlite3's `timeout`) so a tick never dies on `SQLITE_BUSY`
+while the app is writing, and make lease + advance atomic, so a tick killed
+mid-dispatch (the container's `stop_grace_period: 20s`) is recovered by the next
+tick instead of lost.
+
+Choosing the `jobs` service means **amending `PLAN.md`'s non-goal** (*"No
+dispatcher daemon. No poller, no queue, no background scheduler."*). The rationale
+behind it — don't blur "why has work stopped?" with "what is the scheduler
+ doing?", don't duplicate Herdr — survives in a separate process with its own logs
+and restart policy. The letter does not. That is an operator call.
+
+**Not adopted: Pi Durable as the scheduler.** Its durable `sleep`, `resume` and
+exactly-once submissions protect work that runs *inside a process*. This job's work
+runs in a Herdr pane, which no framework can checkpoint or resume — so the
+machinery buys almost nothing here, at the cost of a supervised service, a second
+datastore and an experimental dependency. It becomes relevant only if execution
+itself moves into the conductor (`DESIGN-agent-orchestrator.md`, `28fed253`), which
+is a separate decision. Revisit if: jobs turn into multi-step workflows that span
+days and branch on a result; the dispatcher starts doing LLM work in-process
+rather than handing it to a pane; or the job count outgrows one tick.
 
 **Runner-up — NagaBot routines.** Wins outright if the jobs you actually want are
 "an LLM, in the workspace, with its tools, on a schedule" and you never need a
@@ -154,11 +182,15 @@ scoped, no catch-up).
    job dispatch an agent with **no human in the loop**, or must the first N runs
    be approved?
 3. **Missed ticks:** when the machine was off across a job's slot, run once on
-   wake (systemd `Persistent`) or skip to the next slot? Per job, or global?
+   wake or skip to the next slot? Per job, or global? (In-tick logic answers this
+   for every invoker; systemd `Persistent=true` answers it for the timer only.)
 4. **Where does the job list live for the operator** — the Nexus board, `nx job`
    only, or also NagaBot chat ("what's scheduled?")?
 5. **Is NagaBot's `routine` tool to be reconciled** with the board jobs (one
    store), or left as a separate, in-process mechanism?
+6. **Invoker, and the non-goal:** the compose `jobs` service (self-contained), or
+   a host systemd timer (no new container)? The first amends `PLAN.md`'s "no
+   dispatcher daemon".
 
 ## 6. Evidence
 
