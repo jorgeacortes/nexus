@@ -66,7 +66,7 @@ application layer**, where it can read task state and be unit-tested.
   join pane → task.
 - **New `dispatches` row** (one per dispatch attempt): `id`, `task_id`, `tab_id`,
   `pane_id`, `agent_name`, `harness`, `workspace_id`, `lease_owner`, `lease_until`,
-  `started_at`, `ended_at`, `outcome`. This buys (a) idempotency — the lease stops
+  `started_at`, `ended_at`, `outcome`, `last_seen_status`, `last_seen_at`. This buys (a) idempotency — the lease stops
   two racing dispatches from spawning two agents for one task, (b) the tab → task
   join the close guard wants, (c) history.
   **Lease semantics as implemented (DSP-4):** `lease_until` bounds only an attempt

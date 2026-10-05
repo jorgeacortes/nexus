@@ -25,6 +25,10 @@ export const dispatches = sqliteTable(
     startedAt: text("started_at"),
     endedAt: text("ended_at"),
     outcome: text("outcome"),
+    // The last live status `detectLostAgents` observed for this row's pane, so a
+    // later run can name it when the pane is gone. Null until the first sighting.
+    lastSeenStatus: text("last_seen_status"),
+    lastSeenAt: text("last_seen_at"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [

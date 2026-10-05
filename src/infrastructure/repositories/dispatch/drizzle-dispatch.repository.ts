@@ -5,6 +5,7 @@ import type {
   AcquireLeaseInput,
   DispatchRepository,
   RecordPlacementInput,
+  RecordSeenInput,
   RecordStartInput,
 } from "@/domain/dispatch/dispatch.repository";
 import { type Harness, isHarness } from "@/domain/tasks/task";
@@ -27,6 +28,8 @@ function toDomain(row: DispatchRow): Dispatch {
     startedAt: row.startedAt ? new Date(row.startedAt) : null,
     endedAt: row.endedAt ? new Date(row.endedAt) : null,
     outcome: toOutcome(row.outcome),
+    lastSeenStatus: row.lastSeenStatus,
+    lastSeenAt: row.lastSeenAt ? new Date(row.lastSeenAt) : null,
     createdAt: new Date(row.createdAt),
   };
 }
@@ -79,6 +82,8 @@ export class DrizzleDispatchRepository implements DispatchRepository {
           startedAt: null,
           endedAt: null,
           outcome: null,
+          lastSeenStatus: null,
+          lastSeenAt: null,
           createdAt: input.now.toISOString(),
         };
         this.db.insert(dispatches).values(row).run();
@@ -116,6 +121,24 @@ export class DrizzleDispatchRepository implements DispatchRepository {
   async finish(id: string, outcome: DispatchOutcome, endedAt: Date): Promise<Dispatch> {
     this.db.update(dispatches).set({ outcome, endedAt: endedAt.toISOString() }).where(eq(dispatches.id, id)).run();
     return this.require(id);
+  }
+
+  async recordSeen(id: string, input: RecordSeenInput): Promise<void> {
+    this.db
+      .update(dispatches)
+      .set({ lastSeenStatus: input.status, lastSeenAt: input.seenAt.toISOString() })
+      .where(eq(dispatches.id, id))
+      .run();
+  }
+
+  async listOpen(): Promise<Dispatch[]> {
+    return this.db
+      .select()
+      .from(dispatches)
+      .where(isNull(dispatches.endedAt))
+      .orderBy(dispatches.createdAt)
+      .all()
+      .map(toDomain);
   }
 
   async findById(id: string): Promise<Dispatch | null> {

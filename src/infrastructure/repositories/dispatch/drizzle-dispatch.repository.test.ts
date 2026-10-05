@@ -82,4 +82,21 @@ describe("DrizzleDispatchRepository", () => {
     expect(history.map((row) => row.outcome)).toEqual(["failed", "closed"]);
     expect(await repo.findOpenByTaskId("t1")).toBeNull();
   });
+
+  it("lists every open row and records the last seen status", async () => {
+    const first = await acquire("t1", "host:1");
+    const second = await acquire("t2", "host:2");
+    await repo.recordStart(second.id, { agentName: "smoke-46e044bf", harness: "pi", startedAt: NOW });
+    await repo.finish(first.id, "failed", NOW);
+
+    const open = await repo.listOpen();
+    expect(open.map((row) => row.id)).toEqual([second.id]);
+    expect(open[0]?.lastSeenStatus).toBeNull();
+    expect(open[0]?.lastSeenAt).toBeNull();
+
+    await repo.recordSeen(second.id, { status: "working", seenAt: NOW });
+    const seen = await repo.findById(second.id);
+    expect(seen?.lastSeenStatus).toBe("working");
+    expect(seen?.lastSeenAt?.toISOString()).toBe(NOW.toISOString());
+  });
 });

@@ -56,6 +56,8 @@ export type Dispatch = {
   startedAt: string | null;
   endedAt: string | null;
   outcome: string | null;
+  lastSeenStatus: string | null;
+  lastSeenAt: string | null;
   createdAt: string;
 };
 
@@ -90,6 +92,30 @@ export type CloseHarnessResult = {
     agentStatus: string;
   };
   paneCount: number;
+};
+
+/** One agent `POST /api/dispatch/detect` ended as lost and flagged for the operator. */
+export type LostAgentFinding = {
+  dispatchId: string;
+  taskId: string;
+  taskTitle: string | null;
+  tabId: string | null;
+  paneId: string;
+  agentName: string | null;
+  harness: string | null;
+  lastSeenStatus: string | null;
+  lastSeenAt: string | null;
+  reason: string;
+};
+
+/** `POST /api/dispatch/detect` payload: the one-shot lost-agent sweep's outcome. */
+export type DetectLostAgentsResult = {
+  available: boolean;
+  reason: string | null;
+  checked: number;
+  live: number;
+  completed: number;
+  lost: LostAgentFinding[];
 };
 
 /** Live agent row from `/api/herdr/snapshot` (Herdr state, never stored in SQLite). */

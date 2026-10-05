@@ -38,6 +38,13 @@ export type Dispatch = {
   startedAt: Date | null;
   endedAt: Date | null;
   outcome: DispatchOutcome | null;
+  /**
+   * The last agent status a `detectLostAgents` sweep saw for this row's pane.
+   * Written only while the pane is live, so when the pane disappears it is the
+   * "last seen status" the loss report names. Null until the first sighting.
+   */
+  lastSeenStatus: string | null;
+  lastSeenAt: Date | null;
   createdAt: Date;
 };
 

@@ -32,6 +32,12 @@ export type RecordStartInput = {
   startedAt: Date;
 };
 
+export type RecordSeenInput = {
+  /** The pane's live agent status at this sighting. */
+  status: string;
+  seenAt: Date;
+};
+
 export interface DispatchRepository {
   /**
    * Takes the task's dispatch lease in one transaction. A stale, unstarted row
@@ -45,6 +51,14 @@ export interface DispatchRepository {
   recordStart(id: string, input: RecordStartInput): Promise<Dispatch>;
   /** Ends an open row with an outcome. Never touches Herdr. */
   finish(id: string, outcome: DispatchOutcome, endedAt: Date): Promise<Dispatch>;
+  /**
+   * Refreshes an open row's last observed agent status. A ledger write, never a
+   * Herdr call: `detectLostAgents` runs it each sweep for panes still present so
+   * a later sweep can name the status when the pane disappears.
+   */
+  recordSeen(id: string, input: RecordSeenInput): Promise<void>;
+  /** Every open row (`endedAt` null), the candidate set for lost-agent detection. */
+  listOpen(): Promise<Dispatch[]>;
   findById(id: string): Promise<Dispatch | null>;
   /** The live (open) dispatch for a task, if any. */
   findOpenByTaskId(taskId: string): Promise<Dispatch | null>;

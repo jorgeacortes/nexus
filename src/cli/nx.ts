@@ -33,7 +33,15 @@ import {
   resolveBoard,
 } from "./board-target";
 import { orDash, renderTable, shortId, terminalWidth } from "./format";
-import type { ApiEnvelope, CloseHarnessResult, DispatchResult, LiveAgentsPayload, Project, Task } from "./types";
+import type {
+  ApiEnvelope,
+  CloseHarnessResult,
+  DetectLostAgentsResult,
+  DispatchResult,
+  LiveAgentsPayload,
+  Project,
+  Task,
+} from "./types";
 
 const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
@@ -723,11 +731,21 @@ async function assignCommand(argv: string[]): Promise<void> {
  * `nx dispatch close <tab>` is the sibling teardown and the **sanctioned** way to
  * close a harness tab (DESIGN-dispatch.md §3.2 / §4): it refuses, non-zero, while
  * any pane in the tab still holds live work. A raw `herdr tab close` bypasses it.
+ *
+ * `nx dispatch detect` is the one-shot sweep that covers that bypass
+ * (DESIGN-dispatch.md §3.3): it reads the live snapshot once and flags any agent
+ * whose pane vanished while its task was unfinished. It runs once per call — no
+ * daemon, no timer.
  */
 async function dispatchCommand(argv: string[]): Promise<void> {
   const closeAt = argv.indexOf("close");
   if (closeAt !== -1) {
     await dispatchCloseCommand([...argv.slice(0, closeAt), ...argv.slice(closeAt + 1)]);
+    return;
+  }
+  const detectAt = argv.indexOf("detect");
+  if (detectAt !== -1) {
+    await dispatchDetectCommand([...argv.slice(0, detectAt), ...argv.slice(detectAt + 1)]);
     return;
   }
   const { positionals, flags } = parseArgs(argv);
@@ -761,6 +779,40 @@ async function dispatchCloseCommand(argv: string[]): Promise<void> {
   });
 }
 
+/**
+ * `nx dispatch detect` — the one-shot lost-agent sweep (DESIGN-dispatch.md §3.3).
+ * Read-only with respect to Herdr: it only reads the snapshot, ends a dispatch
+ * row as `lost` and flags the task. An unreadable snapshot exits non-zero and
+ * flags nothing, so "Herdr is down" never reads as "every agent vanished".
+ */
+async function dispatchDetectCommand(argv: string[]): Promise<void> {
+  const { flags } = parseArgs(argv);
+  const result = await request<DetectLostAgentsResult>("/api/dispatch/detect", { method: "POST" });
+  if (!result.available) {
+    throw new CliError(
+      `lost-agent detection did not run: ${result.reason ?? "the live Herdr snapshot is unavailable"}`,
+    );
+  }
+  output(flags, result, () => {
+    if (result.lost.length === 0) {
+      console.log(
+        `No lost agents (${result.checked} open dispatch(es): ${result.live} live, ${result.completed} with a done task).`,
+      );
+      return;
+    }
+    console.log(`Detected ${result.lost.length} lost agent(s); their tasks now need the operator.`);
+    for (const finding of result.lost) {
+      const agent = finding.agentName ?? "unknown agent";
+      const harness = finding.harness ? ` · ${finding.harness}` : "";
+      const tab = finding.tabId ? ` (tab ${finding.tabId})` : "";
+      console.log(
+        `  • #${shortId(finding.taskId)}  pane ${finding.paneId}${tab}  ${agent}${harness}  last seen ${finding.lastSeenStatus ?? "unknown"}`,
+      );
+      console.log(`    ${finding.reason}`);
+    }
+  });
+}
+
 function usage(): void {
   console.log(`nx — talk to the Nexus board over HTTP
 
@@ -781,6 +833,7 @@ function usage(): void {
   nx assign <id> --to <pane-id|auto>  push the task's prompt into an existing Herdr pane
   nx dispatch <id>               lease, ensure workspace, place + start an agent, assign it
   nx dispatch close <tab-id>     guarded teardown: refuses while a pane holds live work
+  nx dispatch detect             one-shot lost-agent sweep: flag tasks whose agent vanished
 
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
   --force writes to a probed board that has no projects.
@@ -797,6 +850,10 @@ function usage(): void {
   refuses (non-zero, naming the pane/agent/status) while any pane in the tab has
   a working, blocked or unknown agent, an idle agent whose task is not done, or a
   foreground process. Never \`herdr tab close\` a tab you did not start.
+
+  \`nx dispatch detect\` covers a raw \`herdr tab close\` Nexus cannot block: it reads
+  the live snapshot once and flags any dispatched agent whose pane is gone while
+  its task is unfinished. Run it on demand; nothing here runs on a timer.
 
   The board comes from NEXUS_URL, then ${configPath()}, then the first of
   ${candidateUrls().join(", ")} that answers.`);

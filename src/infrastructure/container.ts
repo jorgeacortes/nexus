@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 
 import { CloseHarnessUseCase, type PaneTaskPort } from "@/application/dispatch/close-harness";
+import { DetectLostAgentsUseCase, type LostAgentTaskPort } from "@/application/dispatch/detect-lost-agents";
 import { DispatchTaskUseCase } from "@/application/dispatch/dispatch-task";
 import { EnsureWorkspaceUseCase } from "@/application/dispatch/ensure-workspace";
 import type { DispatchRepository } from "@/domain/dispatch/dispatch.repository";
@@ -106,6 +107,28 @@ export const paneTask: PaneTaskPort = {
 
 /** The guarded teardown `nx dispatch close` and `POST /api/dispatch/close` call. */
 export const closeHarness = new CloseHarnessUseCase(harness, paneTask);
+
+/**
+ * The tasks-context read/write the lost-agent sweep needs: the task a dispatch
+ * row names, and the operator flag it sets. Both funnel through the same
+ * `TaskRepository` every other path uses.
+ */
+export const lostAgentTasks: LostAgentTaskPort = {
+  findById: async (id) => {
+    const task = await taskRepo.findById(id);
+    return task ? { id: task.id, title: task.title, status: task.status } : null;
+  },
+  flagNeedsHuman: async (id, reason) => {
+    await taskRepo.update(id, { needsHuman: true, needsHumanReason: reason });
+  },
+};
+
+/** The one-shot lost-agent sweep `nx dispatch detect` / `POST /api/dispatch/detect` call. No poller. */
+export const detectLostAgents = new DetectLostAgentsUseCase({
+  dispatches: dispatchRepo,
+  tasks: lostAgentTasks,
+  harness,
+});
 
 /** The one-shot actuator `nx dispatch` and `POST /api/dispatch` call. No daemon. */
 export const dispatchTask = new DispatchTaskUseCase({
