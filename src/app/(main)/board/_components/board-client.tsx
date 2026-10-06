@@ -31,6 +31,7 @@ import {
 } from "./board-filter";
 import { BoardFilterBar } from "./board-filter-bar";
 import { CreateTaskDialog } from "./create-task-dialog";
+import { PhoneBoard } from "./phone-board";
 import { TaskDetailSheet } from "./task-detail-sheet";
 
 /**
@@ -182,8 +183,12 @@ export function BoardClient({
         onReviewChange={setReviewFilter}
       />
       <DndProvider backend={HTML5Backend}>
-        {/* Phone: one column at a time, snapping, with the next column peeking. Desktop: a wrapping-free row. */}
-        <div className="flex min-h-0 flex-1 snap-x snap-proximity scroll-p-4 gap-3 overflow-x-auto p-4 md:snap-none md:scroll-p-6 md:p-6">
+        {/*
+         * Desktop board: a wrapping-free row of five fixed columns. Hidden below
+         * `md`, where PhoneBoard renders the count-first list instead — the same
+         * route and data, not a second board.
+         */}
+        <div className="hidden min-h-0 flex-1 snap-x snap-proximity scroll-p-4 gap-3 overflow-x-auto p-4 md:flex md:snap-none md:scroll-p-6 md:p-6">
           {TASK_STATUSES.map((status) => (
             <BoardColumn
               key={status}
@@ -198,6 +203,13 @@ export function BoardClient({
           ))}
         </div>
       </DndProvider>
+      <PhoneBoard
+        byStatus={byStatus}
+        totalByStatus={totalByStatus}
+        projectNames={projectNames}
+        liveByPaneId={liveByPaneId}
+        onSelectTask={setSelectedId}
+      />
       {selected ? (
         <TaskDetailSheet
           key={selected.id}

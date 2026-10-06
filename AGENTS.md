@@ -155,7 +155,9 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
   at `max-w-[170px]`), with no `title` escape hatch; `AssigneeChip` is owner/harness
   only. A live agent whose model cannot be resolved renders "Model unknown" rather
   than a blank that reads as "no model"; a card with no agent and no model stays
-  compact. Inbox rows and the Agents screen use the same component.
+  compact. Inbox rows and the Agents screen use the same component. On the phone
+  board the model is not on the card at all — it moves behind the tap (the sheet),
+  never into a chip; the compact card keeps the harness chip and its live dot.
 - In Docker the three state directories are mounted read-only under `/harness`
   (`HARNESS_STATE_DIR=/harness`, see `docker-compose.yml`); on the host the
   resolver reads the real `~/.pi/agent`, `~/.claude`, `~/.cursor`.

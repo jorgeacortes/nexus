@@ -155,16 +155,6 @@ export function TaskDetailSheet({
             <Input id="detail-title" value={title} onChange={(event) => setTitle(event.target.value)} />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="detail-description">Description</Label>
-            <Textarea
-              id="detail-description"
-              value={description}
-              rows={4}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="detail-project">Project</Label>
@@ -214,6 +204,70 @@ export function TaskDetailSheet({
             </div>
           </div>
 
+          {/*
+           * Decision first. On a phone this is the whole act path; sitting below a
+           * 2,600px Description put Status ~2,900px down a 515px viewport.
+           */}
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            {/* Both decision toggles in one row so the whole act path clears one screen. */}
+            <div className="flex flex-wrap items-center gap-2">
+              {status === "done" ? (
+                <Button
+                  type="button"
+                  variant={reviewed ? "default" : "outline"}
+                  size="sm"
+                  aria-pressed={reviewed}
+                  className={cn(reviewed && "bg-emerald-600 text-white hover:bg-emerald-600/90")}
+                  onClick={() => setReviewed((value) => !value)}
+                >
+                  <BadgeCheck />
+                  {reviewed ? "Reviewed" : "Mark reviewed"}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant={needsHuman ? "default" : "outline"}
+                size="sm"
+                aria-pressed={needsHuman}
+                className={cn(needsHuman && "bg-amber-500 text-amber-950 hover:bg-amber-500/90")}
+                onClick={() => setNeedsHuman((value) => !value)}
+              >
+                <CircleAlert />
+                {needsHuman ? "Needs human" : "Flag as needing human"}
+              </Button>
+            </div>
+
+            {status === "done" ? (
+              <p className="text-xs text-muted-foreground">
+                {task?.reviewedAt && reviewed
+                  ? `You personally verified this task ${relativeTime(task.reviewedAt)}. Toggling off clears it.`
+                  : "Only mark a task reviewed once you have personally verified the work — it is not an agent self-assessment."}
+              </p>
+            ) : null}
+
+            {needsHuman ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="detail-reason">Reason</Label>
+                <Input
+                  id="detail-reason"
+                  value={needsHumanReason}
+                  placeholder="Waiting on a decision, key, review…"
+                  onChange={(event) => setNeedsHumanReason(event.target.value)}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="detail-description">Description</Label>
+            <Textarea
+              id="detail-description"
+              value={description}
+              rows={4}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </div>
+
           <Separator />
 
           <AssignmentFields value={assignment} onChange={setAssignment} />
@@ -239,57 +293,9 @@ export function TaskDetailSheet({
           {task?.completionNotes ? (
             <p className="text-xs text-muted-foreground">Notes: {task.completionNotes}</p>
           ) : null}
-
-          {status === "done" ? (
-            <div className="space-y-2 rounded-lg border border-border p-3">
-              <Button
-                type="button"
-                variant={reviewed ? "default" : "outline"}
-                size="sm"
-                aria-pressed={reviewed}
-                className={cn(reviewed && "bg-emerald-600 text-white hover:bg-emerald-600/90")}
-                onClick={() => setReviewed((value) => !value)}
-              >
-                <BadgeCheck />
-                {reviewed ? "Reviewed" : "Mark reviewed"}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                {task?.reviewedAt && reviewed
-                  ? `You personally verified this task ${relativeTime(task.reviewedAt)}. Toggling off clears it.`
-                  : "Only mark a task reviewed once you have personally verified the work — it is not an agent self-assessment."}
-              </p>
-            </div>
-          ) : null}
-
-          <Separator />
-
-          <div className="space-y-2">
-            <Button
-              type="button"
-              variant={needsHuman ? "default" : "outline"}
-              size="sm"
-              aria-pressed={needsHuman}
-              className={cn(needsHuman && "bg-amber-500 text-amber-950 hover:bg-amber-500/90")}
-              onClick={() => setNeedsHuman((value) => !value)}
-            >
-              <CircleAlert />
-              {needsHuman ? "Needs human" : "Flag as needing human"}
-            </Button>
-            {needsHuman ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="detail-reason">Reason</Label>
-                <Input
-                  id="detail-reason"
-                  value={needsHumanReason}
-                  placeholder="Waiting on a decision, key, review…"
-                  onChange={(event) => setNeedsHumanReason(event.target.value)}
-                />
-              </div>
-            ) : null}
-          </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-border p-4">
+        <div className="flex items-center justify-between gap-2 border-t border-border p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom,0px))]">
           <Button variant="destructive" size="sm" disabled={saving} onClick={remove}>
             <Trash2 />
             Delete

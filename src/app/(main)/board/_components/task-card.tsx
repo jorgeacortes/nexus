@@ -38,18 +38,24 @@ const PRIORITY_BADGES: Record<string, { label: string; className: string }> = {
   },
 };
 
-/** A draggable kanban card. The card is the task; the project is only a tag. */
-export function TaskCard({
-  task,
-  projectName,
-  liveAgent,
-  onSelect,
-}: {
+type TaskCardProps = {
   task: TaskDto;
   projectName?: string;
   liveAgent?: LiveAgent;
   onSelect: (id: string) => void;
-}) {
+};
+
+/**
+ * A kanban card. The card is the task; the project is only a tag. `compact` is
+ * the phone variant (see `CompactTaskCard`); the desktop card is a drag source
+ * and is intentionally left as it was.
+ */
+export function TaskCard({ compact = false, ...props }: TaskCardProps & { compact?: boolean }) {
+  return compact ? <CompactTaskCard {...props} /> : <DraggableTaskCard {...props} />;
+}
+
+/** Desktop card. Must stay the drag source it always was. */
+function DraggableTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardProps) {
   const [{ isDragging }, drag] = useDrag(
     () => ({
       type: TASK_DRAG_TYPE,
@@ -85,16 +91,7 @@ export function TaskCard({
       {isAgent ? <ModelTag task={task} liveAgent={liveAgent} className="mt-1.5" /> : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        {task.priority && PRIORITY_BADGES[task.priority] ? (
-          <span
-            className={cn(
-              "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
-              PRIORITY_BADGES[task.priority].className,
-            )}
-          >
-            {PRIORITY_BADGES[task.priority].label}
-          </span>
-        ) : null}
+        {task.priority && PRIORITY_BADGES[task.priority] ? <PriorityPill priority={task.priority} /> : null}
         {projectName ? (
           <Badge variant="outline" className="max-w-full truncate text-muted-foreground">
             {projectName}
@@ -112,10 +109,7 @@ export function TaskCard({
         ) : null}
         <AssigneeChip task={task} />
         {liveAgent ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <span className={cn("size-1.5 rounded-full", AGENT_STATUS_DOT[liveAgent.status])} />
-            {AGENT_STATUS_LABELS[liveAgent.status]}
-          </span>
+          <LiveStatus status={liveAgent.status} />
         ) : task.herdrPaneId ? (
           <span className="text-[11px] text-muted-foreground/70">pane offline</span>
         ) : null}
@@ -124,5 +118,75 @@ export function TaskCard({
         ) : null}
       </div>
     </button>
+  );
+}
+
+/**
+ * Phone card: title, needs-human badge, harness chip + live status dot, project
+ * tag and only non-normal priorities. The description excerpt, the model row,
+ * the Reviewed badge and the claimed time move behind the tap (the sheet) —
+ * the model never becomes a chip, it simply is not on the card.
+ */
+function CompactTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardProps) {
+  const priority = task.priority && task.priority !== "normal" ? PRIORITY_BADGES[task.priority] : undefined;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(task.id)}
+      className={cn(
+        "w-full cursor-pointer rounded-xl border border-border bg-card p-3 text-left text-card-foreground shadow-xs transition-colors",
+        "hover:border-ring/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p
+          className={cn(
+            "text-sm font-medium leading-snug",
+            // A needs-human card is the actionable one, so its title gets the third line.
+            task.needsHuman ? "line-clamp-3" : "line-clamp-2",
+          )}
+        >
+          {task.title}
+        </p>
+        {task.needsHuman ? <NeedsHumanBadge reason={task.needsHumanReason} /> : null}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {priority ? <PriorityPill priority={task.priority ?? "normal"} /> : null}
+        {projectName ? (
+          <Badge variant="outline" className="max-w-full truncate text-muted-foreground">
+            {projectName}
+          </Badge>
+        ) : null}
+        <AssigneeChip task={task} />
+        {liveAgent ? <LiveStatus status={liveAgent.status} /> : null}
+      </div>
+    </button>
+  );
+}
+
+function PriorityPill({ priority }: { priority: string }) {
+  const badge = PRIORITY_BADGES[priority];
+  if (!badge) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+        badge.className,
+      )}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
+/** The live Herdr status as a dot + word, so "still moving?" reads without a tap. */
+function LiveStatus({ status }: { status: LiveAgent["status"] }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+      <span className={cn("size-1.5 rounded-full", AGENT_STATUS_DOT[status])} />
+      {AGENT_STATUS_LABELS[status]}
+    </span>
   );
 }

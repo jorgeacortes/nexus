@@ -44,6 +44,14 @@ earning its space.
 | Move a card | drag | tap → sheet → scroll 2,915px → select |
 | Board-level shape ("backlog 16, ready 9, in progress 3, blocked 0, done 83") | all five headers at once | 4 swipes |
 
+> **Correction, added at implementation time.** The implementing agent could not
+> reproduce the 180px chrome figure on the same rig: on the pre-change deployed
+> board it measures **241px** of chrome and the first card at **298px**. Treat the
+> 180 as specific to the investigating rig. The metrics that decide the design were
+> re-measured against 241 and the improvement holds — the sheet's Status field went
+> from 2,915px to **269px**, and compact cards fit 3-4 where 2 did, even though the
+> new status strip adds 70px of chrome (241 → 335).
+
 The *data* on the board is not the problem: 111 tasks, 6 projects, 5 flagged
 `needsHuman`, 9 live agents across 3 Herdr workspaces. The problem is that 375px
 is being asked to render a workspace.

@@ -138,12 +138,14 @@
  */
 @media (pointer: coarse) {
   [data-slot="button"],
+  [data-slot$="-trigger"],
   [data-slot="input"],
   [data-slot="native-select"] {
     min-height: 2.5rem;
   }
 
-  [data-slot="button"][data-size^="icon"] {
+  [data-slot="button"][data-size^="icon"],
+  [data-slot$="-trigger"][data-size^="icon"] {
     min-width: 2.5rem;
   }
 }
