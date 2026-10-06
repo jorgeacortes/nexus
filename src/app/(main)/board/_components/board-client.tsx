@@ -6,7 +6,8 @@ import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { toast } from "sonner";
 
-import { TASK_PRIORITY_ORDER, TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
+import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
+import { compareTasks } from "@/domain/tasks/task-order";
 import { useLiveAgents } from "@/hooks/use-live-agents";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
@@ -18,12 +19,16 @@ import { BoardColumn } from "./board-column";
 import {
   BOARD_PROJECT_PARAM,
   BOARD_REVIEW_PARAM,
+  BOARD_SORT_PARAM,
+  type BoardSort,
   hrefWithProjectFilter,
   hrefWithReviewFilter,
+  hrefWithSortFilter,
   matchesProjectFilter,
   matchesReviewFilter,
   needsReviewCount,
   type ProjectFilter,
+  parseBoardSort,
   parseProjectFilter,
   parseReviewFilter,
   projectFilterCounts,
@@ -59,6 +64,7 @@ export function BoardClient({
     [searchParams, initialProjects],
   );
   const reviewFilter = useMemo(() => parseReviewFilter(searchParams.get(BOARD_REVIEW_PARAM)), [searchParams]);
+  const sort = useMemo(() => parseBoardSort(searchParams.get(BOARD_SORT_PARAM)), [searchParams]);
 
   // The selection belongs in the URL: a narrowed board survives a refresh and
   // can be shared. replaceState (not push) keeps the History stack clean while
@@ -74,6 +80,14 @@ export function BoardClient({
   const setReviewFilter = useCallback(
     (filter: ReviewFilter) => {
       const href = hrefWithReviewFilter(pathname, filter, new URLSearchParams(searchParams.toString()));
+      window.history.replaceState(null, "", href);
+    },
+    [pathname, searchParams],
+  );
+
+  const setSort = useCallback(
+    (next: BoardSort) => {
+      const href = hrefWithSortFilter(pathname, next, new URLSearchParams(searchParams.toString()));
       window.history.replaceState(null, "", href);
     },
     [pathname, searchParams],
@@ -110,15 +124,10 @@ export function BoardClient({
       grouped.get(task.status)?.push(task);
     }
     for (const list of grouped.values()) {
-      list.sort((a, b) => {
-        const pA = TASK_PRIORITY_ORDER[a.priority ?? "normal"] ?? 2;
-        const pB = TASK_PRIORITY_ORDER[b.priority ?? "normal"] ?? 2;
-        if (pA !== pB) return pA - pB;
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      });
+      list.sort((a, b) => compareTasks(a, b, sort));
     }
     return grouped;
-  }, [visibleTasks]);
+  }, [visibleTasks, sort]);
 
   // Totals over every task, so a column can say how much the filter is hiding.
   const totalByStatus = useMemo(() => {
@@ -178,9 +187,11 @@ export function BoardClient({
         visible={visibleTasks.length}
         project={projectFilter}
         review={reviewFilter}
+        sort={sort}
         needsReview={needsReviewTotal}
         onProjectChange={setProjectFilter}
         onReviewChange={setReviewFilter}
+        onSortChange={setSort}
       />
       <DndProvider backend={HTML5Backend}>
         {/*

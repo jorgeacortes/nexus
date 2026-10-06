@@ -76,7 +76,7 @@ nx project add "crm development" --folder ~/ws/biznagatec-crm --workspace wP
 nx project edit "crm development" --workspace wW   # repoint a dead workspace (`-` clears it)
 nx project list
 nx task add "crm development" "Implement TAVILY support" --status ready
-nx task list [project] [--status ready]
+nx task list [project] [--status ready] [--sort activity|priority]
 nx task show <id>
 nx claim <id>                   # this Herdr pane claims the task
 nx done <id> --notes "commit abc123"

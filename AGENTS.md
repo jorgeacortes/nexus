@@ -73,6 +73,25 @@ Hexagonal layers, three bounded contexts (`projects`, `tasks`, `dispatch`):
 - Web affordances: the detail-sheet toggle, a check badge on the card (date in
   the tooltip), and a "Needs review" board filter (`done` with no `reviewedAt`).
 
+## Board ordering (last activity)
+
+- Every task list defaults to **last activity**: `updatedAt` desc, so the card
+  touched a minute ago floats above one untouched for a week. Priority is the
+  tiebreak and the `id` breaks a full tie, so equal timestamps never reorder on
+  a render. It is one comparator, `compareTasks` in
+  `src/domain/tasks/task-order.ts`, shared by the board's `byStatus`.
+- The board filter bar carries a **Recent / Priority** toggle; "Priority" keeps
+  the previous planning view (priority first, newest activity second). The choice
+  is URL state (`?sort=priority`; the default is omitted) like the project and
+  needs-review filters, so a shared link carries it. The phone board renders the
+  same `byStatus`, so both layouts follow the toggle.
+- `nx task list` takes `--sort activity|priority`, with the same default and
+  semantics (`src/cli/task-sort.ts`; the CLI keeps its own copy because it does
+  not resolve the `@/` alias at runtime).
+- The Inbox is deliberately **not** re-sortable and stays in repository order,
+  which is already `updatedAt` desc: it is a queue of whose court the ball is
+  in, not a board.
+
 ## Herdr integration
 
 - Herdr exposes a JSON-RPC API over a Unix socket via `herdr api snapshot` / schema-driven methods. Do not guess the protocol; `herdr api schema --json` is the source of truth for methods and params.

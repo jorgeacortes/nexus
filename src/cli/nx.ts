@@ -33,6 +33,7 @@ import {
   resolveBoard,
 } from "./board-target";
 import { orDash, renderTable, shortId, terminalWidth } from "./format";
+import { compareTasks, DEFAULT_TASK_SORT, TASK_SORTS, type TaskSort } from "./task-sort";
 import type {
   ApiEnvelope,
   CloseHarnessResult,
@@ -46,7 +47,6 @@ import type {
 const DEFAULT_WATCH_SECONDS = 10;
 const TASK_STATUSES = ["backlog", "ready", "in_progress", "blocked", "done"];
 const TASK_PRIORITIES = ["blocker", "high", "normal", "low", "someday"];
-const PRIORITY_ORDER: Record<string, number> = { blocker: 0, high: 1, normal: 2, low: 3, someday: 4 };
 
 /** Raised for every expected failure: printed as `nx: <message>`, never a stack trace. */
 export class CliError extends Error {}
@@ -323,12 +323,17 @@ async function taskCommand(argv: string[]): Promise<void> {
     const [projectRef] = positionals;
     const status = flagValue(flags, "status");
     const priority = flagValue(flags, "priority");
+    const sortFlag = flagValue(flags, "sort");
     if (status && !TASK_STATUSES.includes(status)) {
       throw new CliError(`Unknown status "${status}". Known statuses: ${TASK_STATUSES.join(", ")}.`);
     }
     if (priority && !TASK_PRIORITIES.includes(priority)) {
       throw new CliError(`Unknown priority "${priority}". Known priorities: ${TASK_PRIORITIES.join(", ")}.`);
     }
+    if (sortFlag && !TASK_SORTS.includes(sortFlag as TaskSort)) {
+      throw new CliError(`Unknown sort "${sortFlag}". Known sorts: ${TASK_SORTS.join(", ")}.`);
+    }
+    const sort: TaskSort = sortFlag === "priority" ? "priority" : DEFAULT_TASK_SORT;
     const projects = await listProjects();
     let tasks = await listTasks();
     if (projectRef) {
@@ -341,12 +346,7 @@ async function taskCommand(argv: string[]): Promise<void> {
     if (priority) {
       tasks = tasks.filter((task) => task.priority === priority);
     }
-    tasks.sort((a, b) => {
-      const pA = PRIORITY_ORDER[a.priority ?? "normal"] ?? 2;
-      const pB = PRIORITY_ORDER[b.priority ?? "normal"] ?? 2;
-      if (pA !== pB) return pA - pB;
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-    });
+    tasks.sort((a, b) => compareTasks(a, b, sort));
     output(flags, tasks, () =>
       console.log(
         renderTable(
@@ -823,7 +823,7 @@ function usage(): void {
   nx project list
   nx task add <project> "<title>" [--description <text>] [--status backlog|ready] [--priority <level>]
   nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]
-  nx task list [project] [--status <status>] [--priority <level>]
+  nx task list [project] [--status <status>] [--priority <level>] [--sort activity|priority]
   nx task show <id>
   nx claim <id>                  claim for this Herdr pane ($HERDR_PANE_ID)
   nx done <id> [--notes <text>]  complete the task

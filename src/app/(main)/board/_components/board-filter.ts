@@ -1,3 +1,4 @@
+import { DEFAULT_TASK_SORT, type TaskSort } from "@/domain/tasks/task-order";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
 
 /**
@@ -76,6 +77,32 @@ export function projectFilterCounts(tasks: TaskDto[]): Map<string, number> {
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;
+}
+
+/**
+ * The sort order is a third narrowing of the same board, kept in the URL
+ * (`?sort=priority`) like the filters so a shared link carries the view. It is
+ * omitted for the default (`activity`), which keeps a plain board link clean.
+ */
+export const BOARD_SORT_PARAM = "sort";
+
+export type BoardSort = TaskSort;
+
+/** Reads `?sort=`; anything but the known `priority` key falls back to activity. */
+export function parseBoardSort(raw: string | null): BoardSort {
+  return raw === "priority" ? "priority" : DEFAULT_TASK_SORT;
+}
+
+/** Builds the board URL for a sort order, preserving any unrelated query params. */
+export function hrefWithSortFilter(pathname: string, sort: BoardSort, current: URLSearchParams): string {
+  const params = new URLSearchParams(current.toString());
+  if (sort === DEFAULT_TASK_SORT) {
+    params.delete(BOARD_SORT_PARAM);
+  } else {
+    params.set(BOARD_SORT_PARAM, sort);
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 /** Builds the board URL for a project filter, preserving any unrelated query params. */

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { ProjectDto } from "@/lib/dto";
 import { cn } from "@/lib/utils";
 
-import { NO_PROJECT_KEY, type ProjectFilter, type ReviewFilter } from "./board-filter";
+import { type BoardSort, NO_PROJECT_KEY, type ProjectFilter, type ReviewFilter } from "./board-filter";
 
 const NO_PROJECT_LABEL = "No project";
 
@@ -23,9 +23,11 @@ export function BoardFilterBar({
   visible,
   project,
   review,
+  sort,
   needsReview,
   onProjectChange,
   onReviewChange,
+  onSortChange,
 }: {
   projects: ProjectDto[];
   counts: Map<string, number>;
@@ -33,9 +35,11 @@ export function BoardFilterBar({
   visible: number;
   project: ProjectFilter;
   review: ReviewFilter;
+  sort: BoardSort;
   needsReview: number;
   onProjectChange: (filter: ProjectFilter) => void;
   onReviewChange: (filter: ReviewFilter) => void;
+  onSortChange: (sort: BoardSort) => void;
 }) {
   const noProjectCount = counts.get(NO_PROJECT_KEY) ?? 0;
   const filtered = project !== null || review !== null;
@@ -70,6 +74,7 @@ export function BoardFilterBar({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        <SortToggle sort={sort} onChange={onSortChange} />
         <FilterChip
           label="Needs review"
           count={needsReview}
@@ -98,6 +103,31 @@ export function BoardFilterBar({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The sort order: "Recent" (last activity, the default) floats a freshly
+ * touched card to the top of its column; "Priority" keeps the older planning
+ * view. The value lives in the URL (`?sort=`), so a shared link carries it.
+ */
+function SortToggle({ sort, onChange }: { sort: BoardSort; onChange: (sort: BoardSort) => void }) {
+  return (
+    <fieldset aria-label="Sort tasks" className="m-0 flex shrink-0 items-center rounded-md border border-border p-0.5">
+      {(["activity", "priority"] as const).map((value) => (
+        <Button
+          key={value}
+          type="button"
+          variant={sort === value ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 px-2 text-xs"
+          aria-pressed={sort === value}
+          onClick={() => onChange(value)}
+        >
+          {value === "activity" ? "Recent" : "Priority"}
+        </Button>
+      ))}
+    </fieldset>
   );
 }
 

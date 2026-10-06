@@ -5,13 +5,16 @@ import type { ProjectDto, TaskDto } from "@/lib/dto";
 import {
   BOARD_PROJECT_PARAM,
   BOARD_REVIEW_PARAM,
+  BOARD_SORT_PARAM,
   hrefWithProjectFilter,
   hrefWithReviewFilter,
+  hrefWithSortFilter,
   matchesProjectFilter,
   matchesReviewFilter,
   NEEDS_REVIEW_KEY,
   NO_PROJECT_KEY,
   needsReviewCount,
+  parseBoardSort,
   parseProjectFilter,
   parseReviewFilter,
   projectFilterCounts,
@@ -141,6 +144,26 @@ describe("review filter", () => {
     );
     const current = new URLSearchParams(`${BOARD_REVIEW_PARAM}=${NEEDS_REVIEW_KEY}&project=p1`);
     expect(hrefWithReviewFilter("/board", null, current)).toBe("/board?project=p1");
+  });
+});
+
+describe("sort order", () => {
+  it("defaults to last activity and only accepts the known priority key", () => {
+    expect(parseBoardSort(null)).toBe("activity");
+    expect(parseBoardSort("")).toBe("activity");
+    expect(parseBoardSort("priority")).toBe("priority");
+    expect(parseBoardSort("newest")).toBe("activity");
+  });
+
+  it("writes priority to the URL and drops the default", () => {
+    expect(hrefWithSortFilter("/board", "priority", new URLSearchParams())).toBe(`/board?${BOARD_SORT_PARAM}=priority`);
+    expect(hrefWithSortFilter("/board", "activity", new URLSearchParams())).toBe("/board");
+  });
+
+  it("preserves unrelated params and clears a stale sort", () => {
+    const current = new URLSearchParams(`${BOARD_SORT_PARAM}=priority&project=p1`);
+    expect(hrefWithSortFilter("/board", "activity", current)).toBe("/board?project=p1");
+    expect(hrefWithSortFilter("/board", "priority", current)).toBe("/board?sort=priority&project=p1");
   });
 });
 
