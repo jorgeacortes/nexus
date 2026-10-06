@@ -413,9 +413,8 @@ tailnet instead.)
 `hasTouch: true`, `deviceScaleFactor: 2`; 375×667 and 390×844; dark and light;
 `http://localhost:3210` = the deployed board, `/api/instance` → `nexus.db`, 6
 projects / 111 tasks; touch via CDP `Input.dispatchTouchEvent`; all non-GET
-`/api/*` aborted during touch tests). Screenshots were captured to `/tmp/recon/` and
-`/tmp/recon2/`, and the manager copied them to
-`~/.config/nexus/evidence/mobile-visualization-2026-10-05/` so they outlive `/tmp`. Everything in §0, §2 and the metric baselines in §7 is from this
+`/api/*` aborted during touch tests). The render's screenshots were transient and are not retained; the operator
+verifies the UI visually themselves. Everything in §0, §2 and the metric baselines in §7 is from this
 render, except where a figure is explicitly labelled as arithmetic or as a source
 fact.
 
