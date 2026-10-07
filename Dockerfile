@@ -45,8 +45,13 @@ COPY . .
 # `data/` is dockerignored (host bind mount). The directory must exist because
 # Next imports the DB client while collecting page data; the migration itself
 # runs in the entrypoint before the server starts.
-RUN --mount=type=cache,target=/app/.next/cache \
-  mkdir -p data && pnpm build
+# Do not persist Turbopack's build cache in Docker. BuildKit keys an un-id'd cache
+# mount by its target path, so /app/.next/cache is one cache shared by every
+# project on the host, and Turbopack's cache dir name is identical across template
+# forks — on 2026-10-06 the CRM build read portal-valua's cached src/app/globals.css
+# and shipped Valua's theme. A cold build is slower but correct by construction;
+# deleting the cache also keeps it out of the runtime image.
+RUN mkdir -p data && pnpm build && rm -rf .next/cache
 
 # ── runtime ─────────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION} AS runner
