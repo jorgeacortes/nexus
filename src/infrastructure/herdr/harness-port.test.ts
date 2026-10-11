@@ -336,13 +336,18 @@ describe("HerdrClient agent prompt and read", () => {
   });
 
   it("waits on agent.prompt for the caller timeout and leaves Herdr's default match", async () => {
-    const { client, calls } = clientAnswering({ "agent.prompt": { type: "agent_prompted" } });
+    const calls: Array<{ method: string; params?: Record<string, unknown>; timeoutMs?: number }> = [];
+    const client = new HerdrClient((method, params, timeoutMs) => {
+      calls.push({ method, params, timeoutMs });
+      return Promise.resolve({ result: { type: "agent_prompted" } });
+    });
 
     await client.prompt("wN:p1", "hello", { timeoutMs: 5000 });
     expect(calls).toEqual([
       {
         method: "agent.prompt",
         params: { target: "wN:p1", text: "hello", wait: { timeout_ms: 5000 } },
+        timeoutMs: 10_000,
       },
     ]);
   });

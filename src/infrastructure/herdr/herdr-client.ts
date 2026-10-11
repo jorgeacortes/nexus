@@ -111,9 +111,14 @@ function isPaneUnavailable(error: unknown): boolean {
 /**
  * One JSON-RPC round-trip against the Herdr socket. Injectable so the topology
  * adapter can be tested for the exact method/params it sends without a socket
- * (production passes `herdrRequest`).
+ * (production passes `herdrRequest`). `timeoutMs` is the socket budget; a
+ * waiting `agent.prompt` must pass a budget longer than its own wait.
  */
-export type HerdrRequestFn = (method: string, params?: Record<string, unknown>) => Promise<HerdrResponse>;
+export type HerdrRequestFn = (
+  method: string,
+  params?: Record<string, unknown>,
+  timeoutMs?: number,
+) => Promise<HerdrResponse>;
 
 type RawSnapshot = {
   agents?: Array<Record<string, unknown>>;
@@ -136,7 +141,14 @@ export function resolveHerdrSocketPath(env: NodeJS.Dict<string> = process.env): 
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
-/** Runs a request against the Herdr API socket and returns the parsed response. */
+/**
+ * Runs a request against the Herdr API socket and returns the parsed response.
+ *
+ * The write side stays open until a complete JSON object arrives. Half-closing
+ * immediately (`socket.end(payload)`) makes a waiting `agent.prompt` drop its
+ * reply: Herdr still submits the text, then closes the connection with an empty
+ * body, and the job is recorded as a failure after the agent has already answered.
+ */
 export async function herdrRequest(
   method: string,
   params?: Record<string, unknown>,
@@ -150,26 +162,47 @@ export async function herdrRequest(
   return new Promise((resolve, reject) => {
     const socket = net.connect(socketPath);
     let buffer = "";
-    const timeout = setTimeout(() => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       socket.destroy();
-      reject(new Error(`herdr socket timeout: ${method}`));
+      settle();
+    };
+    timeout = setTimeout(() => {
+      finish(() => reject(new Error(`herdr socket timeout: ${method}`)));
     }, timeoutMs);
 
-    socket.on("connect", () => socket.end(`${payload}\n`));
+    const acceptBuffer = (): boolean => {
+      const trimmed = buffer.trim();
+      if (!trimmed) return false;
+      try {
+        const parsed = JSON.parse(trimmed) as HerdrResponse;
+        finish(() => resolve(parsed));
+        return true;
+      } catch (error) {
+        if (error instanceof SyntaxError) return false;
+        const detail = error instanceof Error ? error.message : "unknown";
+        finish(() => reject(new Error(`herdr: invalid response: ${detail}`)));
+        return true;
+      }
+    };
+
+    socket.on("connect", () => {
+      socket.write(`${payload}\n`);
+    });
     socket.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
+      acceptBuffer();
     });
     socket.on("end", () => {
-      clearTimeout(timeout);
-      try {
-        resolve(JSON.parse(buffer) as HerdrResponse);
-      } catch (error) {
-        reject(new Error(`herdr: invalid response: ${error instanceof Error ? error.message : "unknown"}`));
-      }
+      if (acceptBuffer()) return;
+      finish(() => reject(new Error("herdr: invalid response: Unexpected end of JSON input")));
     });
     socket.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
+      finish(() => reject(error));
     });
   });
 }
@@ -363,7 +396,10 @@ export class HerdrClient implements HerdrPort, HarnessPort {
    * `request` defaults to the real socket round-trip; tests inject a fake to
    * assert the exact method/params the topology adapter sends.
    */
-  constructor(private readonly request: HerdrRequestFn = (method, params) => herdrRequest(method, params)) {}
+  constructor(
+    private readonly request: HerdrRequestFn = (method, params, timeoutMs) =>
+      herdrRequest(method, params, process.env, timeoutMs),
+  ) {}
 
   async snapshot(): Promise<HerdrSnapshot> {
     return hydrate(await this.readSnapshot());
@@ -393,11 +429,18 @@ export class HerdrClient implements HerdrPort, HarnessPort {
   }
 
   async prompt(target: string, text: string, options?: { timeoutMs?: number; until?: string[] }): Promise<void> {
-    const response = await this.request("agent.prompt", {
-      target,
-      text,
-      wait: promptWait(options),
-    });
+    // The socket has to outlive Herdr's own wait, or a slow answer is cut off
+    // and recorded as a failed run after the agent has already replied.
+    const socketBudget = options?.timeoutMs != null ? options.timeoutMs + 5_000 : undefined;
+    const response = await this.request(
+      "agent.prompt",
+      {
+        target,
+        text,
+        wait: promptWait(options),
+      },
+      socketBudget,
+    );
     if (response.error) {
       throw new HerdrApiError(response.error.code, response.error.message ?? "herdr agent.prompt failed");
     }
