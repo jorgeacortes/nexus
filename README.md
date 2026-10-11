@@ -86,13 +86,16 @@ nx board --watch
 ```
 
 Every command accepts `--json`, and a task id may be abbreviated to any unique
-prefix. `nx project edit <name|id> [--name] [--folder] [--workspace]` is the
-supported way to change a project's folder or Herdr workspace (wrapping
-`PATCH /api/projects/<id>`); `--folder -` / `--workspace -` clears the field. A
-dangling `herdrWorkspaceId` a project still points at is also repaired by
-dispatch when it resolves the project's workspace, so a closed Herdr workspace
-never strands the project. Agents read their own identity from `$HERDR_PANE_ID`
-— it is never typed.
+prefix. `nx project add` refuses a second project with the same name. Matching
+is case-insensitive on the trimmed name, and the folder is not part of the
+identity: add does not update the existing row. Change the folder or workspace
+with `nx project edit`. `nx project edit <name|id> [--name] [--folder]
+[--workspace]` is the supported way to change a project's folder or Herdr
+workspace (wrapping `PATCH /api/projects/<id>`); `--folder -` / `--workspace -`
+clears the field. A dangling `herdrWorkspaceId` a project still points at is
+also repaired by dispatch when it resolves the project's workspace, so a closed
+Herdr workspace never strands the project. Agents read their own identity from
+`$HERDR_PANE_ID` — it is never typed.
 `nx done --notes` is stored on the task (`tasks.completion_notes`) and shown in
 the card's detail panel next to the claim/completion timestamps. `nx board` and
 `nx task show` name the board they read, so two instances can never be confused.
