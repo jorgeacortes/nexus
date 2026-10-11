@@ -29,6 +29,7 @@ kanban board.
 pnpm install
 pnpm dev          # http://localhost:3100, SQLite in ./data-dev
 pnpm validate     # biome + typecheck + vitest
+pnpm backup:data  # snapshot ./data and upload to R2; add -- --dry-run to skip the upload
 ```
 
 `pnpm dev` never touches the production database in `./data`. Override the dev
@@ -209,6 +210,57 @@ BIND_ADDRESS=127.0.0.1 pnpm docker:up  # bind loopback only
   the SQLite files stay host-owned. Drop the `cap_add`/`security_opt` lines and
   the screen still works, with the process/PID columns empty. See `AGENTS.md` →
   "Host listeners".
+
+## Database backup
+
+`pnpm backup:data` snapshots the host's bind-mounted `./data` (the same directory
+Compose mounts at `/app/data`), compresses it, and uploads the archive to the
+existing Cloudflare R2 bucket under the `nexus/` prefix. It does not create a
+bucket. SQLite files are copied with the online backup API, so `nexus.db-wal`
+and `nexus.db-shm` are left out and the archive holds a consistent `nexus.db`.
+
+```bash
+pnpm backup:data                 # upload, then prune objects older than BACKUP_RETENTION_DAYS
+pnpm backup:data -- --dry-run    # keep the tar.gz locally; skip upload and prune
+scripts/backup-data.sh           # cron entry point
+```
+
+Non-secret settings live in `.env.local` (see `.env.example`): `R2_ACCOUNT_ID`,
+`R2_BUCKET`, `R2_BACKUP_PREFIX=nexus`, `BACKUP_RETENTION_DAYS` (default 30).
+`R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` are secrets. `scripts/backup-data.sh`
+sources `.env.local`, then runs `fnox exec` when `FNOX_AGE_KEY` or
+`FNOX_AGE_KEY_FILE` is set. There is no `fnox.toml` in this repo.
+
+Cron (03:10 daily), recorded in the shell script header:
+
+```
+10 3 * * * /home/sandbox/ws/biznagatec-ws/nexus/scripts/backup-data.sh >> /home/sandbox/.logs/nexus-backup.log 2>&1
+```
+
+Give that crontab a `PATH` that includes `node` and `fnox`, and set the age key,
+or the wrapper cannot inject the two secret keys.
+
+### Restore
+
+Stop the board so nothing writes the live file, then unpack an archive (an R2
+object `nexus/data-<stamp>.tar.gz`, or the path a dry-run printed) and check it:
+
+```bash
+pnpm docker:down
+mkdir -p /tmp/nexus-restore
+tar -xzf data-<stamp>.tar.gz -C /tmp/nexus-restore
+sqlite3 /tmp/nexus-restore/data/nexus.db 'PRAGMA integrity_check;'   # expect: ok
+```
+
+Replace the host file and drop stale sidecars so SQLite does not replay a WAL
+over the snapshot:
+
+```bash
+mv ./data/nexus.db ./data/nexus.db.before-restore
+rm -f ./data/nexus.db-wal ./data/nexus.db-shm ./data/nexus.db-journal
+cp /tmp/nexus-restore/data/nexus.db ./data/nexus.db
+pnpm docker:up
+```
 
 ## Herdr
 
