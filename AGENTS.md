@@ -166,7 +166,11 @@ Env, also listed in `.env.example`:
 A missing row, a null timestamp, or a tick older than two intervals fails the
 healthcheck. Dry-run and a disabled loop do not write `last_tick_at`, so the
 service stays unhealthy until a real tick has run: healthy means a tick
-landed. The tick prompts a pane that is already live. Leave `JOBS_ENABLED`
+landed. The tick uses a live idle target pane when that pane sits in the job's
+project folder; a spawn job otherwise places a pane with the dispatch topology
+(reuse a bare shell or create a tab, then start the agent), waits up to
+`timeout_seconds`, and reads the output. A reuse job with no such pane fails
+that run. Leave `JOBS_ENABLED`
 off until a job row is meant to fire.
 
 ## Which model is the agent running?

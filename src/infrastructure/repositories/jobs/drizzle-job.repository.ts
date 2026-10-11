@@ -332,6 +332,7 @@ export class DrizzleJobRepository implements JobRepository {
             status: input.status,
             finishedAt: nowIso,
             paneId: input.paneId,
+            output: input.output,
             error: input.error,
           })
           .where(and(eq(jobRuns.id, input.runId), eq(jobRuns.status, "running")))

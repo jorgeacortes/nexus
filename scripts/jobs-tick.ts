@@ -87,12 +87,25 @@ async function runDueTick(input: JobsTickRunInput): Promise<RunDueJobsReport> {
       projects: {
         find: async (projectId) => {
           const project = await projects.findById(projectId);
-          return project ? { name: project.name, folderPath: project.folderPath } : null;
+          return project
+            ? {
+                id: project.id,
+                name: project.name,
+                folderPath: project.folderPath,
+                herdrWorkspaceId: project.herdrWorkspaceId,
+              }
+            : null;
+        },
+        setWorkspaceId: async (projectId, workspaceId) => {
+          await projects.update(projectId, { herdrWorkspaceId: workspaceId });
         },
       },
       agentPrompt: herdr ?? {
         prompt: async () => {
           throw new Error("dry-run must not prompt a pane");
+        },
+        read: async () => {
+          throw new Error("dry-run must not read a pane");
         },
       },
       liveAgents: herdr ?? {
@@ -100,49 +113,55 @@ async function runDueTick(input: JobsTickRunInput): Promise<RunDueJobsReport> {
           throw new Error("dry-run must not read live agents");
         },
       },
+      harness: herdr?.harness,
     },
     { now: input.now, limit: input.limit, dryRun: input.dryRun },
   );
 }
 
-/** Herdr is imported on the first live call, so a dry run and an empty tick never open the socket. */
-function lazyHerdr(): { prompt: (paneId: string, text: string) => Promise<void>; list: () => Promise<LiveAgent[]> } {
-  let pending: ReturnType<typeof loadHerdr> | null = null;
-  const client = () => {
-    pending ??= loadHerdr();
+/**
+ * Herdr is imported on the first live call, so a dry run and an empty tick never
+ * open the socket. Prompt, read, and topology share that one client.
+ */
+function lazyHerdr() {
+  let pending: ReturnType<typeof loadHerdrClient> | null = null;
+  const load = () => {
+    pending ??= loadHerdrClient();
     return pending;
   };
   return {
-    prompt: async (paneId, text) => (await client()).prompt(paneId, text),
-    list: async () => (await client()).list(),
-  };
-}
-
-type LiveAgent = {
-  paneId: string;
-  agentKind: string;
-  status: string;
-  cwd: string;
-  model: string | null;
-  effort: string | null;
-};
-
-async function loadHerdr(): Promise<{
-  prompt: (paneId: string, text: string) => Promise<void>;
-  list: () => Promise<LiveAgent[]>;
-}> {
-  const { HerdrClient } = await import("@/infrastructure/herdr/herdr-client");
-  const herdr = new HerdrClient();
-  return {
-    prompt: (paneId, text) => herdr.prompt(paneId, text),
-    list: async () =>
-      (await herdr.snapshot()).agents.map((agent) => ({
+    prompt: async (paneId: string, text: string, options?: { timeoutMs?: number }) =>
+      (await load()).prompt(paneId, text, options),
+    read: async (paneId: string) => (await load()).read(paneId),
+    list: async () => {
+      const snapshot = await (await load()).snapshot();
+      return snapshot.agents.map((agent) => ({
         paneId: agent.paneId,
         agentKind: agent.agent,
         status: agent.agentStatus,
         cwd: agent.cwd,
         model: agent.model,
         effort: agent.effort,
-      })),
+      }));
+    },
+    harness: {
+      listWorkspaces: async () => (await load()).listWorkspaces(),
+      listTabs: async (workspaceId: string) => (await load()).listTabs(workspaceId),
+      listPanes: async (workspaceId: string) => (await load()).listPanes(workspaceId),
+      getTab: async (tabId: string) => (await load()).getTab(tabId),
+      processes: async (paneId: string) => (await load()).processes(paneId),
+      createWorkspace: async (label: string, cwd: string | null) => (await load()).createWorkspace(label, cwd),
+      createTab: async (workspaceId: string, label: string, cwd: string | null) =>
+        (await load()).createTab(workspaceId, label, cwd),
+      renameTab: async (tabId: string, label: string) => (await load()).renameTab(tabId, label),
+      startAgent: async (name: string, kind: string, paneId: string, options?: { timeoutMs?: number }) =>
+        (await load()).startAgent(name, kind, paneId, options),
+      closeTab: async (tabId: string) => (await load()).closeTab(tabId),
+    },
   };
+}
+
+async function loadHerdrClient() {
+  const { HerdrClient } = await import("@/infrastructure/herdr/herdr-client");
+  return new HerdrClient();
 }

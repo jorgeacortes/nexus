@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { type RunDueJobsDeps, runDueJobs } from "@/application/jobs/run-due-jobs.usecase";
+import type { HarnessPane, HarnessPort, HarnessTab, HarnessWorkspace } from "@/domain/dispatch/harness";
 import { type Job, type JobRun, pauseJob, resumeJob } from "@/domain/jobs/job";
-import { buildJobPrompt } from "@/domain/jobs/job-prompt";
-import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
+import { buildJobPrompt, type JobPromptProject } from "@/domain/jobs/job-prompt";
 import type { LiveAgentInfo, LiveAgentPort } from "@/domain/tasks/live-agents";
 import type { NexusDb } from "@/infrastructure/db/nexus/db";
 import { jobRuns, jobs, jobsMeta } from "@/infrastructure/db/nexus/schema";
@@ -68,18 +68,111 @@ function agents(rows: LiveAgentInfo[] = [agent()]): { port: LiveAgentPort; calls
   };
 }
 
-function prompts(impl?: (paneId: string, text: string) => Promise<void> | void): {
-  port: AgentPromptPort;
-  calls: { paneId: string; text: string }[];
+function prompts(
+  impl?: (paneId: string, text: string) => Promise<void> | void,
+  read: (paneId: string) => Promise<string> | string = () => "",
+): {
+  port: RunDueJobsDeps["agentPrompt"];
+  calls: { paneId: string; text: string; timeoutMs: number | undefined }[];
+  reads: string[];
 } {
-  const calls: { paneId: string; text: string }[] = [];
+  const calls: { paneId: string; text: string; timeoutMs: number | undefined }[] = [];
+  const reads: string[] = [];
+  return {
+    calls,
+    reads,
+    port: {
+      prompt: async (paneId, text, options) => {
+        calls.push({ paneId, text, timeoutMs: options?.timeoutMs });
+        await impl?.(paneId, text);
+      },
+      read: async (paneId) => {
+        reads.push(paneId);
+        return read(paneId);
+      },
+    },
+  };
+}
+
+const PROJECT: JobPromptProject = {
+  id: "proj-1",
+  name: "nexus",
+  folderPath: "/tmp/nexus",
+  herdrWorkspaceId: "wJ",
+};
+
+type HarnessCalls = {
+  createWorkspace: Array<{ label: string; cwd: string | null }>;
+  createTab: Array<{ workspaceId: string; label: string; cwd: string | null }>;
+  startAgent: Array<{ name: string; kind: string; paneId: string; timeoutMs: number | undefined }>;
+};
+
+function workspace(id: string, label: string): HarnessWorkspace {
+  return {
+    workspaceId: id,
+    label,
+    focused: false,
+    tabCount: 1,
+    paneCount: 1,
+    agentStatus: "unknown",
+    activeTabId: null,
+  };
+}
+
+function shellPane(paneId: string, workspaceId: string, cwd: string): HarnessPane {
+  return {
+    paneId,
+    tabId: `${workspaceId}:t1`,
+    workspaceId,
+    agent: null,
+    agentStatus: "unknown",
+    cwd,
+    focused: false,
+    terminalTitle: "",
+  };
+}
+
+/** A fake topology port. Unused writes throw so a reuse run cannot create a tab by accident. */
+function jobHarness(options: { panes?: HarnessPane[]; failStart?: Error | (() => Error | undefined) }): {
+  port: HarnessPort;
+  calls: HarnessCalls;
+} {
+  const calls: HarnessCalls = { createWorkspace: [], createTab: [], startAgent: [] };
+  const unexpected = (method: string): never => {
+    throw new Error(`unexpected harness.${method}`);
+  };
   return {
     calls,
     port: {
-      prompt: async (paneId, text) => {
-        calls.push({ paneId, text });
-        await impl?.(paneId, text);
+      listWorkspaces: async () => [workspace("wJ", "nexus")],
+      listTabs: async () => unexpected("listTabs"),
+      listPanes: async () => options.panes ?? [],
+      getTab: async () => unexpected("getTab"),
+      processes: async () => unexpected("processes"),
+      createWorkspace: async (label, cwd) => {
+        calls.createWorkspace.push({ label, cwd });
+        return workspace("wCreated", label);
       },
+      createTab: async (workspaceId, label, cwd) => {
+        calls.createTab.push({ workspaceId, label, cwd });
+        const n = calls.createTab.length;
+        const tab: HarnessTab = {
+          tabId: `${workspaceId}:t${n}`,
+          workspaceId,
+          label,
+          focused: false,
+          paneCount: 1,
+          agentStatus: "unknown",
+        };
+        return { tab, rootPane: { ...shellPane(`${workspaceId}:p${n}`, workspaceId, cwd ?? ""), tabId: tab.tabId } };
+      },
+      renameTab: async () => {},
+      startAgent: async (name, kind, paneId, startOptions) => {
+        calls.startAgent.push({ name, kind, paneId, timeoutMs: startOptions?.timeoutMs });
+        const failure = typeof options.failStart === "function" ? options.failStart() : options.failStart;
+        if (failure) throw failure;
+      },
+      closeTab: async () => unexpected("closeTab"),
     },
   };
 }
@@ -464,60 +557,237 @@ describe("runDueJobs", () => {
     expect(report.due.slice().sort()).toEqual(["job-due", "job-leased"]);
   });
 
-  it("fails a run loudly when its target pane is not live", async () => {
+  it("fails a reuse run with no pane and does not create a tab", async () => {
     await repo.insert(makeJob({ id: "job-missing", name: "missing", targetPaneId: "wR:missing", maxRetries: 3 }));
     const sent = prompts();
+    const harness = jobHarness({});
     const report = await runDueJobs(
       {
         jobs: repo,
-        projects: { find: async () => ({ name: "nexus", folderPath: "/tmp/nexus" }) },
+        projects: { find: async () => PROJECT },
         agentPrompt: sent.port,
         liveAgents: agents([agent(PANE)]).port,
+        harness: harness.port,
         leaseOwner: "tick",
       },
       { now: NOW, limit: 5 },
     );
 
     expect(sent.calls).toHaveLength(0);
-    expect(report.runs[0]).toMatchObject({ status: "error", paneId: null });
-    expect(report.runs[0]?.error).toMatch(/wR:missing is not live/);
+    expect(harness.calls.createTab).toEqual([]);
+    expect(harness.calls.createWorkspace).toEqual([]);
+    expect(harness.calls.startAgent).toEqual([]);
+    expect(report.runs[0]).toMatchObject({ status: "error", paneId: null, error: "no pane" });
     expect(await repo.findById("job-missing")).toMatchObject({
       state: "active",
       retryCount: 1,
       lastStatus: "error",
+      lastError: "no pane",
       leaseOwner: null,
     });
-    expect((await repo.findById("job-missing"))?.lastError).toMatch(/not live/);
   });
 
-  it("prompts an existing idle pane in the project folder when the job names none", async () => {
+  it("prompts a live idle target inside the project folder and does not spawn", async () => {
     const job = makeJob({
-      id: "job-auto",
-      name: "auto",
-      projectId: "proj-1",
-      targetPaneId: null,
+      id: "job-pinned",
+      name: "pinned",
+      projectId: PROJECT.id,
+      targetPaneId: "wR:p1",
+      targetMode: "spawn",
       prompt: "Look around.",
     });
     await repo.insert(job);
-    const sent = prompts();
+    const sent = prompts(undefined, () => "looked");
+    const harness = jobHarness({});
     await runDueJobs(
       {
         jobs: repo,
-        projects: { find: async () => ({ name: "nexus", folderPath: "/tmp/nexus" }) },
+        projects: { find: async () => PROJECT },
         agentPrompt: sent.port,
         liveAgents: agents([
           agent("wR:p9", "/tmp/elsewhere"),
           agent("wR:p2", "/tmp/nexus", "working"),
           agent("wR:p1", "/tmp/nexus/web", "idle"),
         ]).port,
+        harness: harness.port,
         leaseOwner: "tick",
       },
       { now: NOW, limit: 5 },
     );
 
+    expect(harness.calls.createTab).toEqual([]);
     expect(sent.calls).toHaveLength(1);
     expect(sent.calls[0]?.paneId).toBe("wR:p1");
-    expect(sent.calls[0]?.text).toBe(buildJobPrompt(job, { name: "nexus", folderPath: "/tmp/nexus" }));
-    expect(sent.calls[0]?.text).toContain("Project: nexus (/tmp/nexus)");
+    expect(sent.calls[0]?.timeoutMs).toBe(60_000);
+    expect(sent.calls[0]?.text).toBe(buildJobPrompt(job, PROJECT));
+    expect(sent.reads).toEqual(["wR:p1"]);
+    expect(await repo.runsFor(job.id)).toMatchObject([{ status: "ok", paneId: "wR:p1", output: "looked" }]);
+  });
+
+  it("does not prompt an idle pane that sits in another project", async () => {
+    await repo.insert(
+      makeJob({
+        id: "job-cross",
+        name: "cross",
+        projectId: PROJECT.id,
+        targetPaneId: "wOther:p1",
+        targetMode: "reuse",
+      }),
+    );
+    const sent = prompts();
+    const harness = jobHarness({});
+    const report = await runDueJobs(
+      {
+        jobs: repo,
+        projects: { find: async () => PROJECT },
+        agentPrompt: sent.port,
+        liveAgents: agents([agent("wOther:p1", "/tmp/other-project", "idle")]).port,
+        harness: harness.port,
+        leaseOwner: "tick",
+      },
+      { now: NOW, limit: 5 },
+    );
+
+    expect(sent.calls).toHaveLength(0);
+    expect(harness.calls.createTab).toEqual([]);
+    expect(report.runs[0]).toMatchObject({ status: "error", error: "no pane", paneId: null });
+  });
+
+  it("spawns into the project folder when the named pane is elsewhere, and records the output", async () => {
+    const job = makeJob({
+      id: "job-spawn",
+      name: "spawn-me",
+      projectId: PROJECT.id,
+      targetPaneId: "wOther:p1",
+      targetMode: "spawn",
+      prompt: "Do the job.",
+    });
+    await repo.insert(job);
+    const sent = prompts(undefined, () => "spawned output");
+    const harness = jobHarness({ panes: [shellPane("wOther:p9", "wJ", "/tmp/other-project")] });
+    await runDueJobs(
+      {
+        jobs: repo,
+        projects: { find: async () => PROJECT },
+        agentPrompt: sent.port,
+        liveAgents: agents([agent("wOther:p1", "/tmp/other-project", "idle")]).port,
+        harness: harness.port,
+        leaseOwner: "tick",
+      },
+      { now: NOW, limit: 5 },
+    );
+
+    expect(harness.calls.createWorkspace).toEqual([]);
+    expect(harness.calls.createTab).toEqual([{ workspaceId: "wJ", label: "spawn-me", cwd: "/tmp/nexus" }]);
+    expect(harness.calls.startAgent).toMatchObject([{ paneId: "wJ:p1", kind: "pi", timeoutMs: 60_000 }]);
+    expect(sent.calls[0]?.paneId).toBe("wJ:p1");
+    expect(sent.calls[0]?.text).toBe(buildJobPrompt(job, PROJECT));
+    expect(sent.reads).toEqual(["wJ:p1"]);
+    expect(await repo.runsFor(job.id)).toMatchObject([{ status: "ok", paneId: "wJ:p1", output: "spawned output" }]);
+  });
+
+  it("reuses a bare shell in the project folder instead of creating a tab", async () => {
+    await repo.insert(
+      makeJob({
+        id: "job-shell",
+        name: "shell",
+        projectId: PROJECT.id,
+        targetPaneId: null,
+        targetMode: "spawn",
+      }),
+    );
+    const sent = prompts(undefined, () => "from the shell");
+    const harness = jobHarness({ panes: [shellPane("wJ:shell", "wJ", "/tmp/nexus")] });
+    await runDueJobs(
+      {
+        jobs: repo,
+        projects: { find: async () => PROJECT },
+        agentPrompt: sent.port,
+        liveAgents: agents([]).port,
+        harness: harness.port,
+        leaseOwner: "tick",
+      },
+      { now: NOW, limit: 5 },
+    );
+
+    expect(harness.calls.createTab).toEqual([]);
+    expect(harness.calls.startAgent).toMatchObject([{ paneId: "wJ:shell" }]);
+    expect(await repo.runsFor("job-shell")).toMatchObject([
+      { status: "ok", paneId: "wJ:shell", output: "from the shell" },
+    ]);
+  });
+
+  it("records a prompt timeout and retries it with the same backoff", async () => {
+    await repo.insert(makeJob({ id: "job-wait", name: "wait", maxRetries: 3 }));
+    const sent = prompts(() => {
+      const error = new Error("timeout") as Error & { code: string };
+      error.code = "timeout";
+      throw error;
+    });
+    await runDueJobs(
+      {
+        jobs: repo,
+        projects: { find: async () => null },
+        agentPrompt: sent.port,
+        liveAgents: agents().port,
+        leaseOwner: "tick",
+      },
+      { now: NOW, limit: 5 },
+    );
+
+    expect(sent.reads).toEqual([]);
+    expect(await repo.findById("job-wait")).toMatchObject({
+      state: "active",
+      retryCount: 1,
+      lastStatus: "timeout",
+      lastError: "timeout",
+    });
+    expect((await repo.findById("job-wait"))?.nextRunAt?.toISOString()).toBe("2026-10-11T12:00:02.000Z");
+    expect(await repo.runsFor("job-wait")).toMatchObject([{ status: "timeout", paneId: PANE, output: null }]);
+  });
+
+  it("records a start timeout and retries it on the next due tick", async () => {
+    await repo.insert(makeJob({ id: "job-start", name: "start-slow", projectId: PROJECT.id, targetMode: "spawn" }));
+    let starts = 0;
+    const harness = jobHarness({
+      failStart: () => {
+        starts += 1;
+        return starts === 1
+          ? new Error("herdr agent.start: agent start-slow did not become interactive within 60000ms")
+          : undefined;
+      },
+    });
+    const sent = prompts(undefined, () => "ready the second time");
+    const tick = (now: Date) =>
+      runDueJobs(
+        {
+          jobs: repo,
+          projects: { find: async () => PROJECT },
+          agentPrompt: sent.port,
+          liveAgents: agents([]).port,
+          harness: harness.port,
+          leaseOwner: "tick",
+        },
+        { now, limit: 5 },
+      );
+
+    const first = await tick(NOW);
+    expect(first.runs[0]).toMatchObject({ status: "timeout", paneId: "wJ:p1" });
+    expect(first.runs[0]?.error).toMatch(/did not become interactive/);
+    expect(sent.calls).toHaveLength(0);
+    let stored = await repo.findById("job-start");
+    expect(stored).toMatchObject({ state: "active", retryCount: 1, lastStatus: "timeout", leaseOwner: null });
+    expect(stored?.nextRunAt?.toISOString()).toBe("2026-10-11T12:00:02.000Z");
+    expect(await repo.runsFor("job-start")).toMatchObject([{ status: "timeout", paneId: "wJ:p1", output: null }]);
+
+    const second = new Date(NOW.getTime() + 2000);
+    await tick(second);
+    stored = await repo.findById("job-start");
+    expect(stored).toMatchObject({ state: "active", retryCount: 0, lastStatus: "ok" });
+    expect(sent.calls).toHaveLength(1);
+    expect(await repo.runsFor("job-start")).toMatchObject([
+      { status: "timeout", paneId: "wJ:p1" },
+      { status: "ok", paneId: "wJ:p2", output: "ready the second time" },
+    ]);
   });
 });

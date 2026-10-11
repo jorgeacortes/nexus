@@ -18,9 +18,14 @@ const MAX_BACKOFF_SHIFT = 16;
 /** Lease length when a job sets no positive `timeoutSeconds`. */
 export const DEFAULT_LEASE_SECONDS = 60;
 
-export function leaseDeadline(job: Pick<Job, "timeoutSeconds">, now: Date): Date {
+/** How long one attempt may run: `timeoutSeconds` when it is positive, otherwise the default lease. */
+export function runTimeoutMs(job: Pick<Job, "timeoutSeconds">): number {
   const seconds = job.timeoutSeconds !== null && job.timeoutSeconds > 0 ? job.timeoutSeconds : DEFAULT_LEASE_SECONDS;
-  return new Date(now.getTime() + seconds * 1000);
+  return seconds * 1000;
+}
+
+export function leaseDeadline(job: Pick<Job, "timeoutSeconds">, now: Date): Date {
+  return new Date(now.getTime() + runTimeoutMs(job));
 }
 
 /** `2^n` seconds after `now`, where `n` is the retry count this failure records. */

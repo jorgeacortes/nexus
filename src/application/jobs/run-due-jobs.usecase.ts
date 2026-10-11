@@ -1,22 +1,40 @@
 import { hostname } from "node:os";
 
-import { type Job, type JobState, markJobDead } from "@/domain/jobs/job";
+import { isTimeoutError, JobPaneError, placeJobPane } from "@/application/jobs/place-job-pane";
+import type { HarnessPort } from "@/domain/dispatch/harness";
+import { expandHome } from "@/domain/dispatch/placement";
+import { type Job, type JobRunStatus, type JobState, markJobDead } from "@/domain/jobs/job";
 import type { FinalizeJobInput, JobRepository, ReapPatch } from "@/domain/jobs/job.repository";
 import { buildJobPrompt, type JobPromptProject } from "@/domain/jobs/job-prompt";
-import { leaseDeadline, planDispatchFailure } from "@/domain/jobs/run-policy";
+import { leaseDeadline, planDispatchFailure, runTimeoutMs } from "@/domain/jobs/run-policy";
 import { nextRunAt as nextScheduleAt, ScheduleError } from "@/domain/jobs/schedule";
-import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import type { LiveAgentInfo, LiveAgentPort } from "@/domain/tasks/live-agents";
 
 export interface JobProjectPort {
   find(projectId: string): Promise<JobPromptProject | null>;
+  /** Persists a workspace a spawn run resolved or created. */
+  setWorkspaceId?(projectId: string, workspaceId: string): Promise<void>;
+}
+
+/**
+ * Prompt with a deadline, then read the transcript. Topology stays on
+ * `HarnessPort`; this is only the wait and the read a job run adds.
+ */
+export interface JobAgentPort {
+  prompt(paneId: string, text: string, options?: { timeoutMs?: number }): Promise<void>;
+  read(paneId: string): Promise<string>;
 }
 
 export type RunDueJobsDeps = {
   jobs: JobRepository;
   projects: JobProjectPort;
-  agentPrompt: AgentPromptPort;
+  agentPrompt: JobAgentPort;
   liveAgents: LiveAgentPort;
+  /**
+   * Dispatch topology for `target_mode: spawn` (reuse a bare shell or create a
+   * tab, then start the agent). A live idle target does not call it.
+   */
+  harness?: HarnessPort;
   /** Who holds a lease. Defaults to `hostname:pid`. */
   leaseOwner?: string;
 };
@@ -32,7 +50,7 @@ export type RunDueJobsInput = {
 export type RunDueJobsRun = {
   jobId: string;
   runId: string;
-  status: "ok" | "error";
+  status: "ok" | "error" | "timeout";
   paneId: string | null;
   error: string | null;
   state: JobState;
@@ -58,8 +76,13 @@ const LEASE_EXPIRED = "Lease expired before the run finished.";
  * advances `next_run_at` from the schedule; failure retries with `2^n` backoff
  * or dead-letters once `retryCount` has reached `maxRetries`.
  *
- * Dispatch prompts a pane that is already live (`agentPrompt` / `liveAgents`).
- * A missing pane fails that run; this tick does not spawn one.
+ * A live idle `target_pane_id` inside the job's project folder is prompted in
+ * place. Otherwise a spawn job places a pane with the dispatch topology (reuse
+ * a bare shell or create a tab, then start the agent). Anything else fails
+ * that run with "no pane" and does not create a tab. The prompt waits up to
+ * `timeout_seconds`, then the pane is read into the run. A timeout — including
+ * an agent start that never becomes ready — is status `timeout` and follows
+ * the same retry policy as any other failure.
  */
 export async function runDueJobs(deps: RunDueJobsDeps, input: RunDueJobsInput): Promise<RunDueJobsReport> {
   const now = input.now;
@@ -162,12 +185,20 @@ async function dispatchClaimed(
   now: Date,
 ): Promise<RunDueJobsRun> {
   let paneId: string | null = null;
+  let output: string | null = null;
+  const timeoutMs = runTimeoutMs(job);
   try {
     const agents = await deps.liveAgents.list();
     paneId = resolvePane(job, agents, project);
-    await deps.agentPrompt.prompt(paneId, prompt);
+    if (!paneId) {
+      paneId = await spawnPane(deps, job, project, timeoutMs);
+    }
+    await deps.agentPrompt.prompt(paneId, prompt, { timeoutMs });
+    output = await deps.agentPrompt.read(paneId);
   } catch (error) {
-    return recordFailure(deps, job, runId, paneId, leaseOwner, now, failureMessage(error));
+    if (error instanceof JobPaneError && error.paneId) paneId = error.paneId;
+    const status = error instanceof JobPaneError ? (error.timeout ? "timeout" : "error") : failureStatus(error);
+    return recordFailure(deps, job, runId, paneId, leaseOwner, now, status, failureMessage(error));
   }
 
   try {
@@ -178,6 +209,7 @@ async function dispatchClaimed(
       runId,
       status: "ok",
       paneId,
+      output,
       error: null,
       nextRunAt: scheduled,
       state: "active",
@@ -202,6 +234,7 @@ async function dispatchClaimed(
       runId,
       status: "ok",
       paneId,
+      output,
       error: null,
       nextRunAt: job.nextRunAt,
       state: deadState(job, now),
@@ -226,6 +259,7 @@ async function recordFailure(
   paneId: string | null,
   leaseOwner: string,
   now: Date,
+  status: Extract<JobRunStatus, "error" | "timeout">,
   message: string,
 ): Promise<RunDueJobsRun> {
   const plan = planDispatchFailure(job, now);
@@ -233,8 +267,9 @@ async function recordFailure(
     now,
     leaseOwner,
     runId,
-    status: "error",
+    status,
     paneId,
+    output: null,
     error: message,
     nextRunAt: plan.outcome === "retry" ? plan.nextRunAt : job.nextRunAt,
     state: plan.outcome === "dead" ? deadState(job, now) : job.state,
@@ -245,7 +280,7 @@ async function recordFailure(
   return {
     jobId: job.id,
     runId,
-    status: "error",
+    status,
     paneId,
     error: message,
     state: finalized?.state ?? input.state,
@@ -262,36 +297,54 @@ function failureMessage(error: unknown): string {
   return "The job dispatch failed.";
 }
 
-function resolvePane(job: Job, agents: readonly LiveAgentInfo[], project: JobPromptProject | null): string {
-  if (job.targetMode === "spawn") {
-    throw new Error(`Job "${job.name}" is set to spawn a pane, and this tick only prompts a pane that already exists.`);
-  }
-  const pinned = job.targetPaneId?.trim() ?? "";
-  if (pinned) {
-    if (!agents.some((agent) => agent.paneId === pinned)) {
-      throw new Error(`Target pane ${pinned} is not live.`);
-    }
-    return pinned;
-  }
-  const folder = project?.folderPath ? expandHome(project.folderPath) : null;
-  if (!folder) {
-    throw new Error(`Job "${job.name}" has no target pane and no project folder to match a live pane.`);
-  }
-  const idle = agents
-    .filter((agent) => agent.status === "idle" && isInside(agent.cwd, folder))
-    .sort((a, b) => a.paneId.localeCompare(b.paneId));
-  if (idle.length === 0) {
-    throw new Error(`No live idle pane under ${folder}.`);
-  }
-  return idle[0].paneId;
+function failureStatus(error: unknown): "error" | "timeout" {
+  return isTimeoutError(error) ? "timeout" : "error";
 }
 
-function expandHome(folder: string): string {
-  const home = process.env.HOME ?? "";
-  const expanded = folder.startsWith("~/") && home ? `${home}/${folder.slice(2)}` : folder;
-  return expanded.replace(/\/+$/, "");
+/**
+ * The named pane, when it is live, idle, and — if the job has a project folder —
+ * inside that folder. A pane in another project's folder is not usable. Missing
+ * or busy targets return null so the caller can spawn or fail with "no pane".
+ */
+function resolvePane(job: Job, agents: readonly LiveAgentInfo[], project: JobPromptProject | null): string | null {
+  const pinned = job.targetPaneId?.trim() ?? "";
+  if (!pinned) return null;
+  const agent = agents.find((candidate) => candidate.paneId === pinned);
+  if (!agent) return null;
+  if (agent.status !== "idle") return null;
+  const folder = project?.folderPath ? expandHome(project.folderPath) : null;
+  if (folder && !isInside(agent.cwd, folder)) return null;
+  return pinned;
+}
+
+/** Spawn into the project folder, or fail the run when this job may not place a pane. */
+async function spawnPane(
+  deps: RunDueJobsDeps,
+  job: Job,
+  project: JobPromptProject | null,
+  timeoutMs: number,
+): Promise<string> {
+  const folder = project?.folderPath?.trim() ?? "";
+  if (job.targetMode !== "spawn" || !deps.harness || !project?.id || folder === "") {
+    throw new Error("no pane");
+  }
+  return placeJobPane({
+    harness: deps.harness,
+    job,
+    project: {
+      id: project.id,
+      name: project.name,
+      folderPath: folder,
+      herdrWorkspaceId: project.herdrWorkspaceId,
+    },
+    setWorkspaceId: (projectId, workspaceId) =>
+      deps.projects.setWorkspaceId?.(projectId, workspaceId) ?? Promise.resolve(),
+    timeoutMs,
+  });
 }
 
 function isInside(cwd: string, folder: string): boolean {
-  return cwd === folder || cwd.startsWith(`${folder}/`);
+  const dir = expandHome(cwd);
+  const root = expandHome(folder);
+  return dir === root || dir.startsWith(`${root}/`);
 }

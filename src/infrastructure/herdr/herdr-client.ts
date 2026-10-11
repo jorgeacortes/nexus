@@ -71,8 +71,18 @@ export interface HerdrSnapshot {
 export interface HerdrPort {
   /** Returns the live session snapshot (agents, panes, tabs, workspaces). */
   snapshot(): Promise<HerdrSnapshot>;
-  /** Sends a prompt to an agent. `target` is a pane id or other agent target. */
+  /**
+   * Sends a prompt. `target` is a pane id or other agent target. When `timeoutMs`
+   * or `until` is set, the call is `agent.prompt` with `wait` (`--wait`). Omitting
+   * `until` leaves Herdr's default match (idle, done, or blocked). A caller
+   * timeout is error code `timeout`.
+   */
   prompt(target: string, text: string, options?: { timeoutMs?: number; until?: string[] }): Promise<void>;
+  /**
+   * The agent's recent terminal text (`agent.read`, source `recent`). `agent.prompt`
+   * answers with agent info, not the transcript, so a job reads the output here.
+   */
+  read(target: string): Promise<string>;
 }
 
 type HerdrResponse = { result?: unknown; error?: { code?: string; message?: string } };
@@ -319,6 +329,21 @@ function toProcess(raw: Record<string, unknown>): HarnessProcess {
   };
 }
 
+/**
+ * `agent.prompt` wait object. A timeout alone is `--wait --timeout` (Herdr then
+ * matches idle, done, or blocked). `until` is sent only when the caller names
+ * states. No wait fields means a submit that returns immediately.
+ */
+function promptWait(options?: { timeoutMs?: number; until?: string[] }): Record<string, unknown> | null {
+  if (!options) return null;
+  const until = options.until !== undefined && options.until.length > 0 ? options.until : null;
+  const hasTimeout = options.timeoutMs !== undefined;
+  if (!until && !hasTimeout) return null;
+  const wait: Record<string, unknown> = { timeout_ms: hasTimeout ? options.timeoutMs : null };
+  if (until) wait.until = until;
+  return wait;
+}
+
 function resultRecord(result: unknown): Record<string, unknown> {
   return result && typeof result === "object" ? (result as Record<string, unknown>) : {};
 }
@@ -330,8 +355,8 @@ function recordsOf(value: unknown): Array<Record<string, unknown>> {
 /**
  * Adapter: Herdr socket + CLI. Reads prefer the socket (`session.snapshot`) so
  * the container needs no Herdr binary; the CLI is a fallback. `agent.prompt`
- * goes over the socket. The topology methods (`HarnessPort`) always go over the
- * socket, so `nx dispatch` needs no Herdr binary either.
+ * and `agent.read` go over the socket. The topology methods (`HarnessPort`) always
+ * go over the socket, so `nx dispatch` needs no Herdr binary either.
  */
 export class HerdrClient implements HerdrPort, HarnessPort {
   /**
@@ -371,11 +396,25 @@ export class HerdrClient implements HerdrPort, HarnessPort {
     const response = await this.request("agent.prompt", {
       target,
       text,
-      wait: options?.until ? { until: options.until, timeout_ms: options.timeoutMs ?? null } : null,
+      wait: promptWait(options),
     });
     if (response.error) {
-      throw new Error(response.error.message ?? "herdr agent.prompt failed");
+      throw new HerdrApiError(response.error.code, response.error.message ?? "herdr agent.prompt failed");
     }
+  }
+
+  /** Recent pane text. `agent.prompt` does not return the transcript. */
+  async read(target: string): Promise<string> {
+    const result = resultRecord(
+      await this.call("agent.read", {
+        target,
+        source: "recent",
+        format: "text",
+        strip_ansi: true,
+      }),
+    );
+    const text = resultRecord(result.read).text;
+    return typeof text === "string" ? text : "";
   }
 
   // --- HarnessPort: Herdr topology (dispatch context) ---

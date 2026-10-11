@@ -1,4 +1,5 @@
 export {
+  type JobAgentPort,
   type JobProjectPort,
   type RunDueJobsDeps,
   type RunDueJobsInput,

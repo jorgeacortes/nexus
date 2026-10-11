@@ -34,8 +34,10 @@ export type FinalizeJobInput = {
   now: Date;
   leaseOwner: string;
   runId: string;
-  status: "ok" | "error";
+  status: "ok" | "error" | "timeout";
   paneId: string | null;
+  /** Agent transcript from `agent.read` after a prompt that finished. Null on failure. */
+  output: string | null;
   error: string | null;
   nextRunAt: Date | null;
   state: JobState;
