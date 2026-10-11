@@ -22,6 +22,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
 import type { LiveAgent } from "@/lib/herdr";
+import type { LinkedPaneState } from "@/lib/pane-link";
 import { relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,7 @@ export function TaskDetailSheet({
   task,
   projects,
   liveAgent,
+  paneState,
   onClose,
   onUpdated,
   onDeleted,
@@ -40,6 +42,8 @@ export function TaskDetailSheet({
   task: TaskDto | null;
   projects: ProjectDto[];
   liveAgent?: LiveAgent;
+  /** Same predicate as the card: a reused pane's blocked status is not this task's. */
+  paneState: LinkedPaneState;
   onClose: () => void;
   onUpdated: (task: TaskDto) => void;
   onDeleted: (id: string) => void;
@@ -116,7 +120,7 @@ export function TaskDetailSheet({
         </SheetHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          {liveAgent?.status === "blocked" && !needsHuman ? (
+          {paneState === "current" && liveAgent?.status === "blocked" && !needsHuman ? (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-300" />
               <p className="flex-1 text-muted-foreground">

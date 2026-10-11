@@ -27,3 +27,22 @@ export function currentTaskByPane<T extends PaneOwnedTask>(tasks: readonly T[]):
   }
   return current;
 }
+
+/** What a card may render for the pane id stored on the task. */
+export type LinkedPaneState = "current" | "reused" | "offline" | "none";
+
+/**
+ * Live facts (status dot, model, effort) are shown only while this task is the
+ * pane's current task and the pane is still in the snapshot. A live pane that
+ * belongs to some other task — or to none — is `reused`. A recorded pane that
+ * is absent from the snapshot is `offline`. No pane id is `none`.
+ */
+export function linkedPaneState(
+  task: PaneOwnedTask,
+  currentByPane: ReadonlyMap<string, { id: string }>,
+  paneOnline: boolean,
+): LinkedPaneState {
+  if (!task.herdrPaneId) return "none";
+  if (!paneOnline) return "offline";
+  return currentByPane.get(task.herdrPaneId)?.id === task.id ? "current" : "reused";
+}

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { dndRef } from "@/lib/dnd";
 import type { TaskDto } from "@/lib/dto";
 import { AGENT_STATUS_DOT, AGENT_STATUS_LABELS, type LiveAgent } from "@/lib/herdr";
+import type { LinkedPaneState } from "@/lib/pane-link";
 import { relativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,8 @@ type TaskCardProps = {
   task: TaskDto;
   projectName?: string;
   liveAgent?: LiveAgent;
+  /** How this card may use `liveAgent`. Live facts only when `"current"`. */
+  paneState: LinkedPaneState;
   onSelect: (id: string) => void;
 };
 
@@ -55,7 +58,7 @@ export function TaskCard({ compact = false, ...props }: TaskCardProps & { compac
 }
 
 /** Desktop card. Must stay the drag source it always was. */
-function DraggableTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardProps) {
+function DraggableTaskCard({ task, projectName, liveAgent, paneState, onSelect }: TaskCardProps) {
   const [{ isDragging }, drag] = useDrag(
     () => ({
       type: TASK_DRAG_TYPE,
@@ -65,7 +68,8 @@ function DraggableTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardP
     [task.id],
   );
 
-  const isAgent = task.assignee === "agent" || Boolean(task.agentName) || Boolean(liveAgent);
+  const liveForCard = paneState === "current" ? liveAgent : undefined;
+  const isAgent = task.assignee === "agent" || Boolean(task.agentName) || Boolean(liveForCard);
 
   return (
     <button
@@ -88,7 +92,7 @@ function DraggableTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardP
       ) : null}
 
       {/* Its own row: a long model id wraps instead of being truncated. */}
-      {isAgent ? <ModelTag task={task} liveAgent={liveAgent} className="mt-1.5" /> : null}
+      {isAgent ? <ModelTag task={task} liveAgent={liveForCard} className="mt-1.5" /> : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {task.priority && PRIORITY_BADGES[task.priority] ? <PriorityPill priority={task.priority} /> : null}
@@ -108,11 +112,7 @@ function DraggableTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardP
           </Badge>
         ) : null}
         <AssigneeChip task={task} />
-        {liveAgent ? (
-          <LiveStatus status={liveAgent.status} />
-        ) : task.herdrPaneId ? (
-          <span className="text-[11px] text-muted-foreground/70">pane offline</span>
-        ) : null}
+        <PaneStatus paneState={paneState} liveAgent={liveAgent} />
         {task.claimedAt ? (
           <span className="text-[11px] text-muted-foreground/70">claimed {relativeTime(task.claimedAt)}</span>
         ) : null}
@@ -122,12 +122,12 @@ function DraggableTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardP
 }
 
 /**
- * Phone card: title, needs-human badge, harness chip + live status dot, project
+ * Phone card: title, needs-human badge, harness chip + pane status, project
  * tag and only non-normal priorities. The description excerpt, the model row,
  * the Reviewed badge and the claimed time move behind the tap (the sheet) —
  * the model never becomes a chip, it simply is not on the card.
  */
-function CompactTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardProps) {
+function CompactTaskCard({ task, projectName, liveAgent, paneState, onSelect }: TaskCardProps) {
   const priority = task.priority && task.priority !== "normal" ? PRIORITY_BADGES[task.priority] : undefined;
 
   return (
@@ -160,7 +160,7 @@ function CompactTaskCard({ task, projectName, liveAgent, onSelect }: TaskCardPro
           </Badge>
         ) : null}
         <AssigneeChip task={task} />
-        {liveAgent ? <LiveStatus status={liveAgent.status} /> : null}
+        <PaneStatus paneState={paneState} liveAgent={liveAgent} />
       </div>
     </button>
   );
@@ -179,6 +179,23 @@ function PriorityPill({ priority }: { priority: string }) {
       {badge.label}
     </span>
   );
+}
+
+/**
+ * Three ways a linked pane can read on a card. The dot is only for the task
+ * the pane is on right now; a reused or departed pane is a muted line.
+ */
+function PaneStatus({ paneState, liveAgent }: { paneState: LinkedPaneState; liveAgent?: LiveAgent }) {
+  if (paneState === "current" && liveAgent) {
+    return <LiveStatus status={liveAgent.status} />;
+  }
+  if (paneState === "reused") {
+    return <span className="text-[11px] text-muted-foreground/70">pane reused</span>;
+  }
+  if (paneState === "offline") {
+    return <span className="text-[11px] text-muted-foreground/70">pane offline</span>;
+  }
+  return null;
 }
 
 /** The live Herdr status as a dot + word, so "still moving?" reads without a tap. */
