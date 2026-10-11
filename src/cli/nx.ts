@@ -838,6 +838,11 @@ function usage(): void {
   --json is accepted everywhere. Task ids may be abbreviated to a unique prefix.
   --force writes to a probed board that has no projects.
 
+  \`nx project add\` refuses a second project with the same name, matched
+  case-insensitively on the trimmed name. The folder is not part of the
+  identity, and add does not update the existing project. Use
+  \`nx project edit\` to change its folder or workspace.
+
   \`nx project edit --workspace <id>\` is the supported way to repoint a project
   at a Herdr workspace; pass \`-\` to clear it. \`dispatch\` also repairs a dangling
   herdrWorkspaceId automatically when it resolves a project's workspace.

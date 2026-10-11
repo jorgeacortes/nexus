@@ -35,6 +35,14 @@ function normalizeName(name: string): string {
   return trimmed;
 }
 
+/**
+ * A project's identity is its trimmed name, compared case-insensitively.
+ * The folder and the Herdr workspace are attributes, not part of the key.
+ */
+export function sameProjectName(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
 function normalizeOptional(value: string | null | undefined): string | null {
   if (value == null) return null;
   const trimmed = value.trim();

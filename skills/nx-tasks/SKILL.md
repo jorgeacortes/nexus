@@ -34,6 +34,9 @@ unique prefix, and `--json` works on every command.
 - `nx task edit <id> [--title <text>] [--description <text>] [--status <status>] [--project <name>] [--priority <level>]` —
   update fields on an existing task.
 - `nx project list` / `nx project add <name> --folder <path> --workspace <id>`.
+  Add refuses a second project with the same name (case-insensitive on the
+  trimmed name) and does not update the existing row. Repoint the folder or
+  workspace with `nx project edit`.
 - `nx project edit <name|id> [--name <text>] [--folder <path>|-] [--workspace <herdr-id>|-]` —
   the supported way to repoint a project's folder or Herdr workspace; `-` clears.
 - `nx need <id> --reason "..."` — flag that this needs the operator.
