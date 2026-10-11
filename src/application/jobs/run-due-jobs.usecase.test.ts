@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { type RunDueJobsDeps, runDueJobs } from "@/application/jobs/run-due-jobs.usecase";
+import {
+  JobNotRunnableError,
+  type RunDueJobsDeps,
+  runDueJobs,
+  runJobNow,
+} from "@/application/jobs/run-due-jobs.usecase";
 import type { HarnessPane, HarnessPort, HarnessTab, HarnessWorkspace } from "@/domain/dispatch/harness";
 import { type Job, type JobRun, pauseJob, resumeJob } from "@/domain/jobs/job";
 import { buildJobPrompt, type JobPromptProject } from "@/domain/jobs/job-prompt";
@@ -789,5 +794,60 @@ describe("runDueJobs", () => {
       { status: "timeout", paneId: "wJ:p1" },
       { status: "ok", paneId: "wJ:p2", output: "ready the second time" },
     ]);
+  });
+});
+
+describe("runJobNow", () => {
+  let db: NexusDb;
+  let repo: DrizzleJobRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new DrizzleJobRepository(db);
+  });
+
+  function deps(sent: ReturnType<typeof prompts>): RunDueJobsDeps {
+    return {
+      jobs: repo,
+      projects: { find: async () => null },
+      agentPrompt: sent.port,
+      liveAgents: agents().port,
+      leaseOwner: "operator",
+    };
+  }
+
+  it("runs a job whose next run is still in the future", async () => {
+    await repo.insert(makeJob({ id: "job-later", nextRunAt: new Date(NOW.getTime() + 3_600_000) }));
+    const sent = prompts();
+    const run = await runJobNow(deps(sent), "job-later", NOW);
+    expect(run).toMatchObject({ jobId: "job-later", status: "ok", paneId: PANE });
+    expect(sent.calls).toHaveLength(1);
+    expect((await repo.findById("job-later"))?.runCount).toBe(1);
+  });
+
+  it("refuses a paused job and leaves it out of the due set", async () => {
+    await repo.insert(makeJob({ id: "job-paused", state: "paused", nextRunAt: hoursBefore(1) }));
+    await expect(runJobNow(deps(prompts()), "job-paused", NOW)).rejects.toBeInstanceOf(JobNotRunnableError);
+    expect(await repo.selectDue(NOW, 5)).toEqual([]);
+    expect((await repo.findById("job-paused"))?.state).toBe("paused");
+  });
+
+  it("revives a dead job and dispatches it", async () => {
+    await repo.insert(
+      makeJob({
+        id: "job-dead",
+        state: "dead",
+        retryCount: 3,
+        lastError: "no pane",
+        lastStatus: "error",
+        nextRunAt: null,
+      }),
+    );
+    const sent = prompts();
+    const run = await runJobNow(deps(sent), "job-dead", NOW);
+    expect(run).toMatchObject({ jobId: "job-dead", status: "ok", state: "active" });
+    const stored = await repo.findById("job-dead");
+    expect(stored).toMatchObject({ state: "active", retryCount: 0, lastError: null, lastStatus: "ok" });
+    expect(stored?.nextRunAt).not.toBeNull();
   });
 });

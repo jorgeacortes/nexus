@@ -2,9 +2,9 @@
  * A stored job: something the board will hand to a harness when it is due.
  *
  * `state` is the lifecycle (active, paused, dead) and is independent of
- * `enabled`. Dead is terminal — a dead-letter job stays dead until a later
- * task defines an explicit revive. These functions only move `state`; they
- * do not lease, dispatch, or advance `nextRunAt`.
+ * `enabled`. Dead is the operator's court: `jobNeedsHuman` is true only then.
+ * `reviveJob` is the explicit way back to active (a re-run). Pause and resume
+ * do not apply to a dead job. These functions do not lease or dispatch.
  */
 
 import type { Effort, Harness } from "@/domain/tasks/task";
@@ -129,7 +129,32 @@ export function resumeJob(job: Job, now?: Date): Job {
   return transitionJob(job, "active", now);
 }
 
-/** active or paused → dead. Dead is terminal. */
+/** active or paused → dead. Dead is terminal until `reviveJob`. */
 export function markJobDead(job: Job, now?: Date): Job {
   return transitionJob(job, "dead", now);
+}
+
+/** A dead-lettered job is waiting on the operator. */
+export function jobNeedsHuman(job: Pick<Job, "state">): boolean {
+  return job.state === "dead";
+}
+
+/**
+ * dead → active, for an operator re-run. Retries start over and the job is due
+ * immediately. Pause and resume still refuse a dead job.
+ */
+export function reviveJob(job: Job, now: Date): Job {
+  if (job.state !== "dead") {
+    throw new JobTransitionError(`Only a dead job can be run again. This one is "${job.state}".`);
+  }
+  return {
+    ...job,
+    state: "active",
+    retryCount: 0,
+    lastError: null,
+    nextRunAt: now,
+    leaseOwner: null,
+    leaseUntil: null,
+    updatedAt: now,
+  };
 }

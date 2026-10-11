@@ -180,7 +180,10 @@ tab destroys the workspace. Flow and rationale: `DESIGN-dispatch.md`.
 `pnpm jobs:tick` (`scripts/jobs-tick.ts`), which the compose `jobs` service
 runs with `--loop`. The Next.js process has no scheduler. The tick calls
 `runDueJobs` and prompts a pane that already exists, and only when
-`JOBS_ENABLED=1` (the default is off).
+`JOBS_ENABLED=1` (the default is off). Add and inspect jobs with `nx job`
+(`list`, `add`, `pause`, `resume`, `run`, `tick`) or the Jobs screen. A job
+that exhausts its retries is dead: it stays on that screen as needing you, and
+`nx job run` sends it again.
 
 ## Deployment (Docker Compose)
 

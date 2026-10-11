@@ -1,3 +1,4 @@
+import { type Job, jobNeedsHuman } from "@/domain/jobs/job";
 import type { Project } from "@/domain/projects/project";
 import type { Task } from "@/domain/tasks/task";
 
@@ -31,4 +32,26 @@ export function toTaskDto(task: Task): TaskDto {
 
 export function toProjectDto(project: Project): ProjectDto {
   return { ...project, createdAt: project.createdAt.toISOString() };
+}
+
+/** JSON-safe job. `needsHuman` is derived: a dead job is waiting on the operator. */
+export type JobDto = Omit<Job, "nextRunAt" | "lastRunAt" | "leaseUntil" | "createdAt" | "updatedAt"> & {
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  leaseUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+  needsHuman: boolean;
+};
+
+export function toJobDto(job: Job): JobDto {
+  return {
+    ...job,
+    nextRunAt: job.nextRunAt?.toISOString() ?? null,
+    lastRunAt: job.lastRunAt?.toISOString() ?? null,
+    leaseUntil: job.leaseUntil?.toISOString() ?? null,
+    createdAt: job.createdAt.toISOString(),
+    updatedAt: job.updatedAt.toISOString(),
+    needsHuman: jobNeedsHuman(job),
+  };
 }

@@ -1,5 +1,4 @@
 import { hostname } from "node:os";
-
 import {
   type ClosedTabDispatchPort,
   CloseHarnessUseCase,
@@ -8,6 +7,7 @@ import {
 import { DetectLostAgentsUseCase, type LostAgentTaskPort } from "@/application/dispatch/detect-lost-agents";
 import { DispatchTaskUseCase } from "@/application/dispatch/dispatch-task";
 import { EnsureWorkspaceUseCase } from "@/application/dispatch/ensure-workspace";
+import type { RunDueJobsDeps } from "@/application/jobs/run-due-jobs.usecase";
 import { ArchiveTasksUseCase } from "@/application/tasks/archive-tasks";
 import { ListTasksUseCase } from "@/application/tasks/list-tasks";
 import { UnarchiveTaskUseCase } from "@/application/tasks/unarchive-task";
@@ -24,6 +24,7 @@ import { db } from "@/infrastructure/db/nexus/db";
 import { type ContainerInventoryPort, HttpContainerInventory } from "@/infrastructure/docker/container-inventory";
 import { HerdrClient } from "@/infrastructure/herdr/herdr-client";
 import { DrizzleDispatchRepository } from "@/infrastructure/repositories/dispatch/drizzle-dispatch.repository";
+import { DrizzleJobRepository } from "@/infrastructure/repositories/jobs/drizzle-job.repository";
 import { DrizzleProjectRepository } from "@/infrastructure/repositories/projects/drizzle-project.repository";
 import { DrizzleTaskRepository } from "@/infrastructure/repositories/tasks/drizzle-task.repository";
 import {
@@ -39,6 +40,7 @@ import {
  */
 export const projectRepo: ProjectRepository = new DrizzleProjectRepository(db);
 export const taskRepo: TaskRepository = new DrizzleTaskRepository(db);
+export const jobRepo = new DrizzleJobRepository(db);
 
 /** The one-shot archive sweep. Board and task-list reads call it; nothing polls. */
 export const archiveTasks = new ArchiveTasksUseCase(taskRepo);
@@ -190,3 +192,17 @@ export const dispatchTask = new DispatchTaskUseCase({
   liveAgents,
   leaseOwner: `${hostname()}:${process.pid}`,
 });
+
+/**
+ * Ports for one jobs tick or a manual run. The HTTP tick calls `runDueJobs`
+ * even when `JOBS_ENABLED` is off: that switch stops the compose loop, not an
+ * explicit `nx job tick` or `POST /api/jobs/tick`.
+ */
+export const jobRunner: RunDueJobsDeps = {
+  jobs: jobRepo,
+  projects: projectWorkspace,
+  agentPrompt: herdrClient,
+  liveAgents,
+  harness,
+  leaseOwner: `${hostname()}:${process.pid}`,
+};

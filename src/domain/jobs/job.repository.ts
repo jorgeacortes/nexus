@@ -50,6 +50,10 @@ export interface JobRepository {
   update(job: Job): Promise<Job>;
   insertRun(run: JobRun): Promise<JobRun>;
   findById(id: string): Promise<Job | null>;
+  /** Every job, oldest next run first. The caller decides how to present dead rows. */
+  list(): Promise<Job[]>;
+  /** Deletes the job and its run history. */
+  delete(id: string): Promise<void>;
   runsFor(jobId: string): Promise<JobRun[]>;
   readMeta(): Promise<JobsMeta | null>;
 
@@ -67,9 +71,11 @@ export interface JobRepository {
 
   /**
    * One transaction: conditional lease update (`changes() === 1`) and a new
-   * `running` row. Returns null when another writer owns the job.
+   * `running` row. Returns null when another writer owns the job or it is not
+   * due. `ignoreSchedule` still requires an enabled, active, unleased row — a
+   * manual run uses it so a future `nextRunAt` does not block the operator.
    */
-  claim(id: string, input: ClaimJobInput): Promise<ClaimedJob | null>;
+  claim(id: string, input: ClaimJobInput, options?: { ignoreSchedule?: boolean }): Promise<ClaimedJob | null>;
 
   /**
    * One transaction: finish the running row and release the lease, only while

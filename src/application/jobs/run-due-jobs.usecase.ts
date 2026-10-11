@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { isTimeoutError, JobPaneError, placeJobPane } from "@/application/jobs/place-job-pane";
 import type { HarnessPort } from "@/domain/dispatch/harness";
 import { expandHome } from "@/domain/dispatch/placement";
-import { type Job, type JobRunStatus, type JobState, markJobDead } from "@/domain/jobs/job";
+import { type Job, type JobRunStatus, type JobState, markJobDead, reviveJob } from "@/domain/jobs/job";
 import type { FinalizeJobInput, JobRepository, ReapPatch } from "@/domain/jobs/job.repository";
 import { buildJobPrompt, type JobPromptProject } from "@/domain/jobs/job-prompt";
 import { leaseDeadline, planDispatchFailure, runTimeoutMs } from "@/domain/jobs/run-policy";
@@ -134,6 +134,51 @@ export async function runDueJobs(deps: RunDueJobsDeps, input: RunDueJobsInput): 
     runs,
     lastTickAt: meta.lastTickAt?.toISOString() ?? null,
   };
+}
+
+export class JobNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Job ${id} not found.`);
+    this.name = "JobNotFoundError";
+  }
+}
+
+/** Pause, a held lease, or a disabled row. A dead job is revived instead of refused. */
+export class JobNotRunnableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "JobNotRunnableError";
+  }
+}
+
+/**
+ * Run one job now, ignoring its schedule. A dead job is revived first (retries
+ * reset, due immediately). A paused job is refused so pause still means the
+ * tick will not dispatch it. The claim does not require `nextRunAt <= now`.
+ */
+export async function runJobNow(deps: RunDueJobsDeps, id: string, now: Date): Promise<RunDueJobsRun> {
+  const existing = await deps.jobs.findById(id);
+  if (!existing) throw new JobNotFoundError(id);
+  if (!existing.enabled) {
+    throw new JobNotRunnableError(`Job "${existing.name}" is disabled.`);
+  }
+  if (existing.state === "paused") {
+    throw new JobNotRunnableError(`Job "${existing.name}" is paused. Resume it before running it.`);
+  }
+
+  const job = existing.state === "dead" ? await deps.jobs.update(reviveJob(existing, now)) : existing;
+  const project = job.projectId ? await deps.projects.find(job.projectId) : null;
+  const prompt = buildJobPrompt(job, project);
+  const leaseOwner = deps.leaseOwner ?? `${hostname()}:${process.pid}`;
+  const claimed = await deps.jobs.claim(
+    job.id,
+    { now, leaseOwner, leaseUntil: leaseDeadline(job, now), prompt },
+    { ignoreSchedule: true },
+  );
+  if (!claimed) {
+    throw new JobNotRunnableError(`Job "${job.name}" is already running.`);
+  }
+  return dispatchClaimed(deps, claimed.job, claimed.run.id, prompt, project, leaseOwner, now);
 }
 
 function normalizeLimit(limit: number | undefined): number {

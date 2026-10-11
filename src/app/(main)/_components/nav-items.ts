@@ -1,4 +1,4 @@
-import { Archive, Bot, Columns3, FolderKanban, Inbox, type LucideIcon, Network } from "lucide-react";
+import { Archive, Bot, Columns3, FolderKanban, Inbox, type LucideIcon, Network, Timer } from "lucide-react";
 
 export type NavItem = { href: string; label: string; hint: string; icon: LucideIcon };
 
@@ -10,6 +10,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/agents", label: "Agents", hint: "Live status", icon: Bot },
   { href: "/servers", label: "Servers", hint: "Listening ports", icon: Network },
   { href: "/projects", label: "Projects", hint: "Folders", icon: FolderKanban },
+  { href: "/jobs", label: "Jobs", hint: "Schedule", icon: Timer },
 ];
 
 /** The destination whose href is a prefix of `pathname`, if any. */

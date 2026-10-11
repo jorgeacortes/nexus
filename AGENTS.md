@@ -211,6 +211,14 @@ project folder; a spawn job otherwise places a pane with the dispatch topology
 that run. Leave `JOBS_ENABLED`
 off until a job row is meant to fire.
 
+`/jobs` and `nx job` are how a job is added, paused, resumed, edited, or
+removed. `POST /api/jobs/tick` and `nx job tick` run one tick even when
+`JOBS_ENABLED` is off: the switch stops the loop, not an explicit tick. A job
+that exhausts retries is `dead`. That is the needs-human signal (no extra
+column). It stays visible on `/jobs`, and `nx job run` (or Run now) revives it
+and dispatches it. Pause still refuses a run, so a paused job is not claimed
+on the next tick.
+
 ## Which model is the agent running?
 
 **Decision: the harness's own session state is authoritative for the model; Herdr's

@@ -143,6 +143,45 @@ export type LiveAgentsPayload = {
   agents: LiveAgent[];
 };
 
+/** `/api/jobs` row. `needsHuman` is true when the job is dead. */
+export type Job = {
+  id: string;
+  name: string;
+  kind: string;
+  schedule: string | null;
+  intervalSeconds: number | null;
+  timezone: string | null;
+  prompt: string;
+  projectId: string | null;
+  targetPaneId: string | null;
+  targetMode: string;
+  enabled: boolean;
+  state: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: string | null;
+  lastError: string | null;
+  retryCount: number;
+  maxRetries: number;
+  needsHuman: boolean;
+};
+
+/** `POST /api/jobs/[id]/run` — the attempt, plus the job after it. */
+export type JobRunResult = {
+  run: { jobId: string; runId: string; status: string; paneId: string | null; error: string | null; state: string };
+  job: Job | null;
+};
+
+/** `POST /api/jobs/tick` — one pass of due jobs. */
+export type JobTickResult = {
+  dryRun: boolean;
+  due: string[];
+  reaped: string[];
+  lost: string[];
+  runs: Array<{ jobId: string; status: string; paneId: string | null; error: string | null; state: string }>;
+  lastTickAt: string | null;
+};
+
 /** `POST /api/tasks/archive` — the one-shot sweep. */
 export type ArchiveSweepResult = {
   archived: Task[];

@@ -14,6 +14,7 @@
  *   nx claim <id> / nx done <id> [--notes] / nx need <id> [--reason]
  *   nx review <id> [--undo]       record the operator's verification of a done task
  *   nx archive sweep / nx archive undo <id>
+ *   nx job list|show|add|edit|pause|resume|run|remove|tick
  *   nx board [--watch [seconds]]
  *   nx assign <id> --to <pane-id|auto>
  *
@@ -41,6 +42,9 @@ import type {
   CloseHarnessResult,
   DetectLostAgentsResult,
   DispatchResult,
+  Job,
+  JobRunResult,
+  JobTickResult,
   LiveAgentsPayload,
   Project,
   Task,
@@ -857,6 +861,181 @@ async function dispatchDetectCommand(argv: string[]): Promise<void> {
   });
 }
 
+const listJobs = () => request<Job[]>("/api/jobs");
+
+function resolveJob(ref: string | undefined, jobs: Job[]): Job {
+  if (!ref) throw new CliError("Which job? Pass a job id (see `nx job list`).");
+  const exact = jobs.find((job) => job.id === ref);
+  if (exact) return exact;
+  const matches = jobs.filter((job) => job.id.startsWith(ref));
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) throw new CliError(`Job id "${ref}" is ambiguous (${matches.length} matches).`);
+  throw new CliError(`No job matches "${ref}".`);
+}
+
+function wholeNumberFlag(flags: Map<string, string | true>, name: string): number | undefined {
+  const raw = flagValue(flags, name);
+  if (raw === null) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value)) {
+    throw new CliError(`--${name} must be a whole number (got "${raw}").`);
+  }
+  return value;
+}
+
+function jobWriteBody(flags: Map<string, string | true>, options: { requirePrompt: boolean }): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const name = flagValue(flags, "name");
+  if (name !== null) body.name = name;
+  const prompt = flagValue(flags, "prompt");
+  if (prompt !== null) body.prompt = parseDescription(prompt);
+  else if (options.requirePrompt) throw new CliError("A job needs --prompt <text> (or @file).");
+  const schedule = clearableFlag(flags, "schedule");
+  if (schedule !== undefined) body.schedule = schedule;
+  const interval = wholeNumberFlag(flags, "interval");
+  if (interval !== undefined) body.intervalSeconds = interval;
+  const timezone = clearableFlag(flags, "timezone");
+  if (timezone !== undefined) body.timezone = timezone;
+  const pane = clearableFlag(flags, "pane");
+  if (pane !== undefined) body.targetPaneId = pane;
+  const mode = flagValue(flags, "mode");
+  if (mode !== null) {
+    if (mode !== "reuse" && mode !== "spawn") {
+      throw new CliError(`--mode must be reuse or spawn (got "${mode}").`);
+    }
+    body.targetMode = mode;
+  }
+  const maxRetries = wholeNumberFlag(flags, "max-retries");
+  if (maxRetries !== undefined) body.maxRetries = maxRetries;
+  const timeout = wholeNumberFlag(flags, "timeout");
+  if (timeout !== undefined) body.timeoutSeconds = timeout;
+  const enabled = flagValue(flags, "enabled");
+  if (enabled !== null) {
+    if (enabled !== "yes" && enabled !== "no") throw new CliError("--enabled must be yes or no.");
+    body.enabled = enabled === "yes";
+  }
+  return body;
+}
+
+function when(iso: string | null): string {
+  return iso ? iso.slice(0, 16).replace("T", " ") : "";
+}
+
+async function jobCommand(argv: string[]): Promise<void> {
+  const [action, ...rest] = argv;
+  const { positionals, flags } = parseArgs(rest);
+
+  if (action === "list") {
+    const jobs = await listJobs();
+    output(flags, jobs, () =>
+      console.log(
+        renderTable(
+          ["ID", "NAME", "STATE", "NEXT", "LAST", "ENABLED"],
+          jobs.map((job) => [
+            shortId(job.id),
+            job.name,
+            job.needsHuman ? "dead · needs you" : job.state,
+            when(job.nextRunAt),
+            job.lastStatus ? `${job.lastStatus} ${when(job.lastRunAt)}` : "",
+            job.enabled ? "yes" : "no",
+          ]),
+          terminalWidth(),
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (action === "tick") {
+    const report = await request<JobTickResult>("/api/jobs/tick", { method: "POST", body: {} });
+    output(flags, report, () => {
+      if (report.runs.length === 0) {
+        console.log(report.due.length === 0 ? "No jobs were due." : `Due: ${report.due.join(", ")}. Nothing ran.`);
+        return;
+      }
+      for (const run of report.runs) {
+        const pane = run.paneId ? ` on ${run.paneId}` : "";
+        const error = run.error ? ` — ${run.error}` : "";
+        console.log(`#${shortId(run.jobId)}  ${run.status}${pane}  ${run.state}${error}`);
+      }
+    });
+    return;
+  }
+
+  if (action === "add") {
+    const [namePositional] = positionals;
+    const body = jobWriteBody(flags, { requirePrompt: true });
+    const name = typeof body.name === "string" ? body.name : namePositional;
+    if (!name)
+      throw new CliError('Usage: nx job add "<name>" --prompt <text> (--schedule <cron> | --interval <seconds>)');
+    body.name = name;
+    if (body.schedule === undefined && body.intervalSeconds === undefined) {
+      throw new CliError("Pass --schedule <cron> or --interval <seconds>.");
+    }
+    const projectRef = flagValue(flags, "project");
+    if (projectRef) body.projectId = resolveProject(projectRef, await listProjects()).id;
+    const job = await request<Job>("/api/jobs", { method: "POST", body });
+    output(flags, job, () => console.log(`Added #${shortId(job.id)} ${job.name}`));
+    return;
+  }
+
+  const job = resolveJob(positionals[0], await listJobs());
+
+  if (action === "show") {
+    const full = await request<Job>(`/api/jobs/${job.id}`);
+    output(flags, full, () => {
+      console.log(`#${shortId(full.id)}  ${full.name}  ${full.needsHuman ? "dead · needs you" : full.state}`);
+      console.log(`  kind ${full.kind}  enabled ${full.enabled ? "yes" : "no"}  mode ${full.targetMode}`);
+      console.log(
+        `  schedule ${orDash(full.schedule)}  interval ${full.intervalSeconds ?? "—"}s  tz ${orDash(full.timezone)}`,
+      );
+      console.log(`  next ${when(full.nextRunAt) || "—"}  last ${full.lastStatus ?? "—"} ${when(full.lastRunAt)}`);
+      if (full.lastError) console.log(`  error ${full.lastError}`);
+      console.log("");
+      console.log(full.prompt);
+    });
+    return;
+  }
+
+  if (action === "edit") {
+    const body = jobWriteBody(flags, { requirePrompt: false });
+    const projectRef = flagValue(flags, "project");
+    if (projectRef) body.projectId = resolveProject(projectRef, await listProjects()).id;
+    if (Object.keys(body).length === 0) {
+      throw new CliError(
+        "nx job edit: pass at least one field (--name, --prompt, --schedule, --interval, --project, …).",
+      );
+    }
+    const updated = await request<Job>(`/api/jobs/${job.id}`, { method: "PATCH", body });
+    output(flags, updated, () => console.log(`Updated #${shortId(updated.id)} ${updated.name}`));
+    return;
+  }
+
+  if (action === "pause" || action === "resume" || action === "remove") {
+    const updated = await request<Job | { id: string }>(`/api/jobs/${job.id}`, {
+      method: "PATCH",
+      body: { action },
+    });
+    output(flags, updated, () => {
+      if (action === "remove") console.log(`Removed #${shortId(job.id)} ${job.name}`);
+      else console.log(`${action === "pause" ? "Paused" : "Resumed"} #${shortId(job.id)} ${job.name}`);
+    });
+    return;
+  }
+
+  if (action === "run") {
+    const result = await request<JobRunResult>(`/api/jobs/${job.id}/run`, { method: "POST", body: {} });
+    output(flags, result, () => {
+      const pane = result.run.paneId ? ` on ${result.run.paneId}` : "";
+      const error = result.run.error ? ` — ${result.run.error}` : "";
+      console.log(`#${shortId(job.id)} ${job.name}  ${result.run.status}${pane}  ${result.run.state}${error}`);
+    });
+    return;
+  }
+
+  throw new CliError("Usage: nx job list|show|add|edit|pause|resume|run|remove|tick. Run `nx help` for flags.");
+}
+
 function usage(): void {
   console.log(`nx — talk to the Nexus board over HTTP
 
@@ -875,6 +1054,11 @@ function usage(): void {
   nx review <id> [--undo]        record the OPERATOR's verification of a done task (or clear it)
   nx archive sweep               archive done tasks completed more than 7 days ago
   nx archive undo <id>           put an archived task back on the board as ready
+  nx job list|show <id>
+  nx job add "<name>" --prompt <text> (--schedule <cron> | --interval <seconds>) [--project <name>] [--pane <id>] [--mode reuse|spawn]
+  nx job edit <id> [--name <text>] [--prompt <text>] [--schedule <cron>| -] [--interval <seconds>] [--project <name>]
+  nx job pause|resume|run|remove <id>
+  nx job tick                    one tick, even when JOBS_ENABLED is off
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
   nx assign <id> --to <pane-id|auto>  push the task's prompt into an existing Herdr pane
   nx dispatch <id>               lease, ensure workspace, place + start an agent, assign it
@@ -911,6 +1095,11 @@ function usage(): void {
   done card older than 7 days leaves the board when someone looks. Unarchive
   (\`nx archive undo\`) puts it back as ready and clears the completion stamp, so
   the next sweep does not immediately archive it again.
+
+  \`nx job\` is the operator surface for stored jobs. A dead job (retries
+  exhausted) shows as needing you; \`nx job run\` revives it and dispatches it.
+  \`nx job pause\` keeps the tick from claiming it. \`nx job tick\` runs one pass
+  even when JOBS_ENABLED is off — that switch stops the compose loop only.
 
   The board comes from NEXUS_URL, then ${configPath()}, then the first of
   ${candidateUrls().join(", ")} that answers.`);
@@ -953,6 +1142,9 @@ async function main(): Promise<void> {
       return;
     case "archive":
       await archiveCommand(rest);
+      return;
+    case "job":
+      await jobCommand(rest);
       return;
     case "board":
       await boardCommand(rest);

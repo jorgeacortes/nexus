@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { type Job, JobTransitionError, markJobDead, pauseJob, resumeJob, transitionJob } from "@/domain/jobs/job";
+import {
+  type Job,
+  JobTransitionError,
+  jobNeedsHuman,
+  markJobDead,
+  pauseJob,
+  resumeJob,
+  reviveJob,
+  transitionJob,
+} from "@/domain/jobs/job";
 
 const EARLIER = new Date("2026-10-01T00:00:00.000Z");
 const NOW = new Date("2026-10-11T12:00:00.000Z");
@@ -56,6 +65,21 @@ describe("job state transitions", () => {
     expect(() => pauseJob(job("dead"), NOW)).toThrow(JobTransitionError);
     expect(() => resumeJob(job("dead"), NOW)).toThrow(JobTransitionError);
     expect(() => markJobDead(job("dead"), NOW)).toThrow(/cannot move to "dead"/);
+  });
+
+  it("treats a dead job as needing the operator and revives it for a re-run", () => {
+    const dead = markJobDead(job("active"), NOW);
+    expect(jobNeedsHuman(dead)).toBe(true);
+    expect(jobNeedsHuman(job("active"))).toBe(false);
+
+    const revived = reviveJob({ ...dead, retryCount: 3, lastError: "no pane" }, NOW);
+    expect(revived.state).toBe("active");
+    expect(revived.retryCount).toBe(0);
+    expect(revived.lastError).toBeNull();
+    expect(revived.nextRunAt).toBe(NOW);
+    expect(jobNeedsHuman(revived)).toBe(false);
+    expect(() => reviveJob(job("paused"), NOW)).toThrow(/dead/);
+    expect(() => resumeJob(dead, NOW)).toThrow(JobTransitionError);
   });
 
   it("refuses a transition the current state does not allow", () => {

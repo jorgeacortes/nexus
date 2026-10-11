@@ -144,12 +144,11 @@ function toJobRow(job: Job) {
   };
 }
 
-function dueWhere(nowIso: string) {
+function dueWhere(nowIso: string, options?: { ignoreSchedule?: boolean }) {
   return and(
     eq(jobs.enabled, true),
     eq(jobs.state, "active"),
-    isNotNull(jobs.nextRunAt),
-    lte(jobs.nextRunAt, nowIso),
+    options?.ignoreSchedule ? undefined : and(isNotNull(jobs.nextRunAt), lte(jobs.nextRunAt, nowIso)),
     or(isNull(jobs.leaseUntil), lte(jobs.leaseUntil, nowIso)),
   );
 }
@@ -198,6 +197,23 @@ export class DrizzleJobRepository implements JobRepository {
   async findById(id: string): Promise<Job | null> {
     const row = this.db.select().from(jobs).where(eq(jobs.id, id)).get();
     return row ? toJob(row) : null;
+  }
+
+  async list(): Promise<Job[]> {
+    return this.db.select().from(jobs).orderBy(asc(jobs.nextRunAt), asc(jobs.id)).all().map(toJob);
+  }
+
+  async delete(id: string): Promise<void> {
+    const removed = this.db.transaction(
+      (tx) => {
+        tx.delete(jobRuns).where(eq(jobRuns.jobId, id)).run();
+        return tx.delete(jobs).where(eq(jobs.id, id)).run();
+      },
+      { behavior: "immediate" },
+    );
+    if (removed.changes !== 1) {
+      throw new JobValidationError(`Job ${id} not found.`);
+    }
   }
 
   async runsFor(jobId: string): Promise<JobRun[]> {
@@ -276,7 +292,7 @@ export class DrizzleJobRepository implements JobRepository {
     );
   }
 
-  async claim(id: string, input: ClaimJobInput): Promise<ClaimedJob | null> {
+  async claim(id: string, input: ClaimJobInput, options?: { ignoreSchedule?: boolean }): Promise<ClaimedJob | null> {
     const nowIso = input.now.toISOString();
     return this.db.transaction(
       (tx) => {
@@ -292,7 +308,7 @@ export class DrizzleJobRepository implements JobRepository {
             runCount: current.runCount + 1,
             updatedAt: nowIso,
           })
-          .where(and(eq(jobs.id, id), dueWhere(nowIso)))
+          .where(and(eq(jobs.id, id), dueWhere(nowIso, options)))
           .run();
         // The due predicate is the lock. A concurrent tick that already leased
         // the row updates zero rows and must not insert a second run.
