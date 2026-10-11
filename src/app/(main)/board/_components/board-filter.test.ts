@@ -49,6 +49,7 @@ const task = (overrides: Partial<TaskDto> = {}): TaskDto => ({
   claimedAt: null,
   completedAt: null,
   reviewedAt: null,
+  archivedAt: null,
   completionNotes: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -108,6 +109,16 @@ describe("projectFilterCounts", () => {
     expect(counts.get(NO_PROJECT_KEY)).toBe(1);
     expect(counts.get("never-used")).toBeUndefined();
   });
+
+  it("does not count an archived task", () => {
+    const counts = projectFilterCounts([
+      task({ projectId: "p1" }),
+      task({ projectId: "p1", status: "done", archivedAt: "2026-10-01T00:00:00.000Z" }),
+      task({ projectId: null, status: "done", archivedAt: "2026-10-01T00:00:00.000Z" }),
+    ]);
+    expect(counts.get("p1")).toBe(1);
+    expect(counts.get(NO_PROJECT_KEY)).toBeUndefined();
+  });
 });
 
 describe("review filter", () => {
@@ -134,6 +145,14 @@ describe("review filter", () => {
       task({ status: "done" }),
       task({ status: "done", reviewedAt: "2026-10-04T08:00:00.000Z" }),
       task({ status: "in_progress" }),
+    ]);
+    expect(count).toBe(1);
+  });
+
+  it("does not count an archived done task as needing review", () => {
+    const count = needsReviewCount([
+      task({ status: "done", archivedAt: "2026-10-01T00:00:00.000Z" }),
+      task({ status: "done" }),
     ]);
     expect(count).toBe(1);
   });

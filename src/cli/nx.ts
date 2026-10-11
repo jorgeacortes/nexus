@@ -13,6 +13,7 @@
  *   nx task add|list|show
  *   nx claim <id> / nx done <id> [--notes] / nx need <id> [--reason]
  *   nx review <id> [--undo]       record the operator's verification of a done task
+ *   nx archive sweep / nx archive undo <id>
  *   nx board [--watch [seconds]]
  *   nx assign <id> --to <pane-id|auto>
  *
@@ -36,6 +37,7 @@ import { orDash, renderTable, shortId, terminalWidth } from "./format";
 import { compareTasks, DEFAULT_TASK_SORT, TASK_SORTS, type TaskSort } from "./task-sort";
 import type {
   ApiEnvelope,
+  ArchiveSweepResult,
   CloseHarnessResult,
   DetectLostAgentsResult,
   DispatchResult,
@@ -212,6 +214,8 @@ async function request<T>(path: string, init: { method?: string; body?: unknown 
 
 const listProjects = () => request<Project[]>("/api/projects");
 const listTasks = () => request<Task[]>("/api/tasks");
+/** Active tasks plus archived ones, so claim and unarchive can still name a card that left the board. */
+const listTasksIncludingArchived = () => request<Task[]>("/api/tasks?archived=include");
 const readLiveAgents = () => request<LiveAgentsPayload>("/api/herdr/snapshot");
 
 function resolveTask(ref: string | undefined, tasks: Task[]): Task {
@@ -403,7 +407,7 @@ async function taskCommand(argv: string[]): Promise<void> {
   }
 
   if (action === "show") {
-    const tasks = await listTasks();
+    const tasks = await listTasksIncludingArchived();
     const task = resolveTask(positionals[0], tasks);
     const projects = await listProjects();
     const target = await currentBoard();
@@ -422,6 +426,7 @@ async function taskCommand(argv: string[]): Promise<void> {
         ["claimed", orDash(task.claimedAt)],
         ["completed", orDash(task.completedAt)],
         ["reviewed", orDash(task.reviewedAt)],
+        ["archived", orDash(task.archivedAt)],
         ["needs human", task.needsHuman ? (task.needsHumanReason ?? "yes") : "no"],
         ["description", orDash(task.description)],
         ["notes", orDash(task.completionNotes)],
@@ -495,7 +500,7 @@ async function taskCommand(argv: string[]): Promise<void> {
 
 async function claimCommand(argv: string[]): Promise<void> {
   const { positionals, flags } = parseArgs(argv);
-  const task = resolveTask(positionals[0], await listTasks());
+  const task = resolveTask(positionals[0], await listTasksIncludingArchived());
   const claimed = await request<Task>(`/api/tasks/${task.id}/claim`, {
     method: "POST",
     body: { paneId: envValue("HERDR_PANE_ID") },
@@ -559,6 +564,45 @@ async function reviewCommand(argv: string[]): Promise<void> {
     }
     console.log(`Cleared review on #${shortId(updated.id)} ${updated.title}`);
   });
+}
+
+/**
+ * `nx archive sweep` runs the one-shot sweep. `nx archive undo <id>` puts a
+ * task back on the board as `ready`. The same sweep also runs when the board
+ * or a task list is read; nothing here is on a timer.
+ */
+async function archiveCommand(argv: string[]): Promise<void> {
+  const [action, ...rest] = argv;
+  const { positionals, flags } = parseArgs(rest);
+
+  if (action === "sweep") {
+    const result = await request<ArchiveSweepResult>("/api/tasks/archive", { method: "POST" });
+    output(flags, result, () => {
+      if (result.archived.length === 0) {
+        console.log("No tasks were ready to archive.");
+        return;
+      }
+      console.log(`Archived ${result.archived.length} task(s).`);
+      for (const task of result.archived) {
+        console.log(`  • #${shortId(task.id)} ${task.title}`);
+      }
+    });
+    return;
+  }
+
+  if (action === "undo") {
+    const task = resolveTask(positionals[0], await listTasksIncludingArchived());
+    if (!task.archivedAt) {
+      throw new CliError(`#${shortId(task.id)} ${task.title} is not archived.`);
+    }
+    const restored = await request<Task>(`/api/tasks/${task.id}/unarchive`, { method: "POST" });
+    output(flags, restored, () => {
+      console.log(`Unarchived #${shortId(restored.id)} ${restored.title} — back on the board as ${restored.status}`);
+    });
+    return;
+  }
+
+  throw new CliError("Usage: nx archive sweep | nx archive undo <id>");
 }
 
 async function loadBoard(): Promise<{ rows: ReturnType<typeof buildBoardRows>; live: LiveAgentsPayload }> {
@@ -829,6 +873,8 @@ function usage(): void {
   nx done <id> [--notes <text>]  complete the task
   nx need <id> [--reason <t>]    flag the task as needing the operator
   nx review <id> [--undo]        record the OPERATOR's verification of a done task (or clear it)
+  nx archive sweep               archive done tasks completed more than 7 days ago
+  nx archive undo <id>           put an archived task back on the board as ready
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
   nx assign <id> --to <pane-id|auto>  push the task's prompt into an existing Herdr pane
   nx dispatch <id>               lease, ensure workspace, place + start an agent, assign it
@@ -859,6 +905,12 @@ function usage(): void {
   \`nx dispatch detect\` covers a raw \`herdr tab close\` Nexus cannot block: it reads
   the live snapshot once and flags any dispatched agent whose pane is gone while
   its task is unfinished. Run it on demand; nothing here runs on a timer.
+
+  \`nx archive sweep\` is the same shape: one shot, no crontab line and no timer
+  inside the app. Opening the board or listing tasks runs that sweep too, so a
+  done card older than 7 days leaves the board when someone looks. Unarchive
+  (\`nx archive undo\`) puts it back as ready and clears the completion stamp, so
+  the next sweep does not immediately archive it again.
 
   The board comes from NEXUS_URL, then ${configPath()}, then the first of
   ${candidateUrls().join(", ")} that answers.`);
@@ -898,6 +950,9 @@ async function main(): Promise<void> {
       return;
     case "review":
       await reviewCommand(rest);
+      return;
+    case "archive":
+      await archiveCommand(rest);
       return;
     case "board":
       await boardCommand(rest);

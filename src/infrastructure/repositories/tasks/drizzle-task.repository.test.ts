@@ -107,7 +107,10 @@ describe("DrizzleTaskRepository", () => {
 
     const moved = await repo.update(saved.id, { status: "in_progress" });
     expect(moved.reviewedAt).toBeNull();
+    expect(moved.completedAt).toBeNull();
+    expect(moved.archivedAt).toBeNull();
     expect((await repo.findById(saved.id))?.reviewedAt).toBeNull();
+    expect((await repo.findById(saved.id))?.completedAt).toBeNull();
   });
 
   it("persists priority on save and update", async () => {

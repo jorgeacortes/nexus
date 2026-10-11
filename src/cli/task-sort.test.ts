@@ -22,6 +22,7 @@ function task(overrides: Partial<Task> = {}): Task {
     claimedAt: null,
     completedAt: null,
     reviewedAt: null,
+    archivedAt: null,
     completionNotes: null,
     createdAt: "2026-10-04T08:00:00.000Z",
     updatedAt: "2026-10-04T08:00:00.000Z",

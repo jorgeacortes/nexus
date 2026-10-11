@@ -94,7 +94,9 @@ export function BoardClient({
     [pathname, searchParams],
   );
 
-  const filterCounts = useMemo(() => projectFilterCounts(tasks), [tasks]);
+  const boardTasks = useMemo(() => tasks.filter((task) => task.archivedAt === null), [tasks]);
+
+  const filterCounts = useMemo(() => projectFilterCounts(boardTasks), [boardTasks]);
 
   const liveByPaneId = useMemo(() => {
     const map = new Map<string, LiveAgent>();
@@ -114,11 +116,12 @@ export function BoardClient({
   );
 
   const visibleTasks = useMemo(
-    () => tasks.filter((task) => matchesProjectFilter(task, projectFilter) && matchesReviewFilter(task, reviewFilter)),
-    [tasks, projectFilter, reviewFilter],
+    () =>
+      boardTasks.filter((task) => matchesProjectFilter(task, projectFilter) && matchesReviewFilter(task, reviewFilter)),
+    [boardTasks, projectFilter, reviewFilter],
   );
 
-  const needsReviewTotal = useMemo(() => needsReviewCount(tasks), [tasks]);
+  const needsReviewTotal = useMemo(() => needsReviewCount(boardTasks), [boardTasks]);
 
   const byStatus = useMemo(() => {
     const grouped = new Map<TaskStatus, TaskDto[]>();
@@ -140,11 +143,11 @@ export function BoardClient({
     for (const status of TASK_STATUSES) {
       counts.set(status, 0);
     }
-    for (const task of tasks) {
+    for (const task of boardTasks) {
       counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
     }
     return counts;
-  }, [tasks]);
+  }, [boardTasks]);
 
   const moveTask = useCallback(
     async (taskId: string, status: TaskStatus) => {
@@ -189,7 +192,7 @@ export function BoardClient({
       <BoardFilterBar
         projects={initialProjects}
         counts={filterCounts}
-        total={tasks.length}
+        total={boardTasks.length}
         visible={visibleTasks.length}
         project={projectFilter}
         review={reviewFilter}

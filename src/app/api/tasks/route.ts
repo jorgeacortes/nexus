@@ -3,8 +3,9 @@ import { z } from "zod";
 
 import { CreateTaskUseCase } from "@/application/tasks/create-task";
 import { ProjectReferenceNotFoundError } from "@/application/tasks/errors";
+import type { ArchivedFilter } from "@/application/tasks/list-tasks";
 import { ASSIGNEE_TYPES, HARNESSES, TASK_PRIORITIES, TASK_STATUSES, TaskValidationError } from "@/domain/tasks/task";
-import { projectReference, taskRepo } from "@/infrastructure/container";
+import { listTasks, projectReference, taskRepo } from "@/infrastructure/container";
 
 const createTaskSchema = z.object({
   projectId: z.string().nullable().optional(),
@@ -29,7 +30,13 @@ export async function GET(request: Request) {
     const needsHuman = url.searchParams.get("needsHuman");
     const status = url.searchParams.get("status");
     const priority = url.searchParams.get("priority");
-    let tasks = projectId ? await taskRepo.findByProjectId(projectId) : await taskRepo.findAll();
+    const archived = archiveFilter(url.searchParams.get("archived"));
+    // The sweep runs inside the list read, so a done card older than 7 days
+    // leaves before this response is built. No timer.
+    let tasks = await listTasks.execute({
+      projectId: projectId || undefined,
+      archived,
+    });
     if (needsHuman === "true") {
       tasks = tasks.filter((task) => task.needsHuman);
     }
@@ -59,6 +66,11 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ data: null, error: messageOf(error) }, { status: 500 });
   }
+}
+
+function archiveFilter(value: string | null): ArchivedFilter {
+  if (value === "only" || value === "include") return value;
+  return "exclude";
 }
 
 function messageOf(error: unknown): string {

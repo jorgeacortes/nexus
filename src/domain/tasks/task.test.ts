@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { isArchiveEligible } from "@/domain/tasks/archive";
 import {
   claimTask,
   completeTask,
@@ -262,6 +263,12 @@ describe("claimTask", () => {
     const task = completeTask(claimTask(createTask({ title: "t" }), { paneId: "wR:p1" }));
     expect(() => claimTask(task, { paneId: "wR:p1" })).toThrow(TaskTransitionError);
   });
+
+  it("rejects claiming an archived task with an archive-specific message", () => {
+    const done = completeTask(claimTask(createTask({ title: "t" }), { paneId: "wR:p1" }));
+    const archived = { ...done, archivedAt: new Date("2026-10-01T00:00:00.000Z") };
+    expect(() => claimTask(archived, { paneId: "wR:p1" })).toThrow(/archived and cannot be claimed/);
+  });
 });
 
 describe("completeTask", () => {
@@ -305,8 +312,15 @@ describe("reviewedAt", () => {
     // A content edit on a done task leaves the verification in place.
     expect(updateTask(reviewed, { title: "renamed" }).reviewedAt).toEqual(reviewedAt);
 
-    // Reopening clears it, the same way a re-claim clears completedAt.
-    expect(updateTask(reviewed, { status: "in_progress" }).reviewedAt).toBeNull();
+    // Reopening clears the review, the completion stamp, and any archive stamp.
+    const reopened = updateTask(
+      { ...reviewed, archivedAt: new Date("2026-10-01T00:00:00.000Z") },
+      { status: "in_progress" },
+    );
+    expect(reopened.reviewedAt).toBeNull();
+    expect(reopened.completedAt).toBeNull();
+    expect(reopened.archivedAt).toBeNull();
+    expect(isArchiveEligible(reopened, new Date("2026-12-01T00:00:00.000Z"))).toBe(false);
   });
 
   it("never sets a review on a task that is not done", () => {

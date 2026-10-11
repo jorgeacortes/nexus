@@ -8,6 +8,9 @@ import {
 import { DetectLostAgentsUseCase, type LostAgentTaskPort } from "@/application/dispatch/detect-lost-agents";
 import { DispatchTaskUseCase } from "@/application/dispatch/dispatch-task";
 import { EnsureWorkspaceUseCase } from "@/application/dispatch/ensure-workspace";
+import { ArchiveTasksUseCase } from "@/application/tasks/archive-tasks";
+import { ListTasksUseCase } from "@/application/tasks/list-tasks";
+import { UnarchiveTaskUseCase } from "@/application/tasks/unarchive-task";
 import type { DispatchRepository } from "@/domain/dispatch/dispatch.repository";
 import type { HarnessPort } from "@/domain/dispatch/harness";
 import type { DispatchProjectPort, ProjectWorkspacePort } from "@/domain/dispatch/project-workspace";
@@ -36,6 +39,12 @@ import {
  */
 export const projectRepo: ProjectRepository = new DrizzleProjectRepository(db);
 export const taskRepo: TaskRepository = new DrizzleTaskRepository(db);
+
+/** The one-shot archive sweep. Board and task-list reads call it; nothing polls. */
+export const archiveTasks = new ArchiveTasksUseCase(taskRepo);
+/** Task lists. Runs the sweep, then returns the requested slice. */
+export const listTasks = new ListTasksUseCase(taskRepo, archiveTasks);
+export const unarchiveTask = new UnarchiveTaskUseCase(taskRepo);
 export const dispatchRepo: DispatchRepository = new DrizzleDispatchRepository(db);
 export const herdrClient: HerdrClient = new HerdrClient();
 export const serverCollector: ServerCollectorPort = new ProcfsServerCollector();

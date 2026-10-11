@@ -222,6 +222,12 @@ export type Task = {
    * it null, keeping "agent finished" and "human verified" independent facts.
    */
   reviewedAt: Date | null;
+  /**
+   * When the task left the board for the archive. Null = still listed. Not a
+   * status and not a boolean — `TASK_STATUSES` stays the five columns. Set only
+   * by the archive sweep. Cleared by unarchive and by any move out of `done`.
+   */
+  archivedAt: Date | null;
   completionNotes: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -424,6 +430,7 @@ export function createTask(input: CreateTaskInput): Task {
     claimedAt: null,
     completedAt: null,
     reviewedAt: null,
+    archivedAt: null,
     completionNotes: null,
     createdAt: now,
     updatedAt: now,
@@ -441,6 +448,12 @@ export function createTask(input: CreateTaskInput): Task {
  * carried over.
  */
 export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
+  if (task.archivedAt !== null) {
+    throw new TaskTransitionError(
+      `Task ${task.id} is archived and cannot be claimed. Unarchive it first (nx archive undo).`,
+    );
+  }
+
   const now = new Date();
   const paneId = normalizeOptionalText(input.paneId);
 
@@ -464,6 +477,7 @@ export function claimTask(task: Task, input: ClaimTaskInput = {}): Task {
     claimedAt: now,
     completedAt: null,
     reviewedAt: null,
+    archivedAt: null,
     completionNotes: null,
     updatedAt: now,
   };
@@ -522,6 +536,7 @@ export function completeTask(task: Task, input: CompleteTaskInput = {}): Task {
     needsHumanReason: null,
     completedAt: now,
     reviewedAt: null,
+    archivedAt: null,
     completionNotes: normalizeOptionalText(input.notes) ?? task.completionNotes,
     updatedAt: now,
   };
@@ -559,9 +574,13 @@ export function updateTask(task: Task, input: UpdateTaskInput): Task {
 
   const needsHuman = input.needsHuman ?? task.needsHuman;
 
-  // Review is only meaningful on a done task: any move out of `done` clears it,
-  // the same way a re-claim clears `completedAt`.
+  // Leaving `done` drops the completion stamp, the review, and any archive
+  // stamp together. A reopened task must not keep a stale `completedAt` that a
+  // later sweep could treat as eligible, and review is only meaningful on done.
+  const leavingDone = task.status === "done" && status !== "done";
   const reviewedAt = status === "done" ? (input.reviewedAt !== undefined ? input.reviewedAt : task.reviewedAt) : null;
+  const completedAt = leavingDone ? null : task.completedAt;
+  const archivedAt = leavingDone ? null : task.archivedAt;
 
   return {
     ...task,
@@ -584,7 +603,9 @@ export function updateTask(task: Task, input: UpdateTaskInput): Task {
         ? input.needsHumanReason
         : task.needsHumanReason
       : null,
+    completedAt,
     reviewedAt,
+    archivedAt,
     updatedAt: new Date(),
   };
 }

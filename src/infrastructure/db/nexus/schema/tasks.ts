@@ -26,6 +26,11 @@ export const tasks = sqliteTable(
     claimedAt: text("claimed_at"),
     completedAt: text("completed_at"),
     reviewedAt: text("reviewed_at"),
+    /**
+     * When the task left the live board for the archive. Null means it is still
+     * listed. This is not a status — `TASK_STATUSES` stays the five columns.
+     */
+    archivedAt: text("archived_at"),
     completionNotes: text("completion_notes"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
@@ -36,5 +41,9 @@ export const tasks = sqliteTable(
     index("tasks_project_idx").on(table.projectId),
     index("tasks_needs_human_idx").on(table.needsHuman),
     index("tasks_herdr_pane_idx").on(table.herdrPaneId),
+    // The sweep looks up done tasks by completion age. The archived-at index
+    // is the default-list exclusion and the archive table.
+    index("tasks_status_completed_idx").on(table.status, table.completedAt),
+    index("tasks_archived_at_idx").on(table.archivedAt),
   ],
 );
