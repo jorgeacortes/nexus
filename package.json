@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate-databases.ts",
+    "jobs:tick": "tsx scripts/jobs-tick.ts",
     "db:studio": "drizzle-kit studio",
     "docker:up": "bash scripts/docker-up.sh up -d --build",
     "docker:down": "bash scripts/docker-up.sh down",

@@ -2,12 +2,12 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /**
- * Stored jobs and their run history. The tick that leases and dispatches them
- * is a later task; this schema only holds the rows.
+ * Stored jobs and their run history. `scripts/jobs-tick.ts` leases and
+ * dispatches due rows; this schema only holds them.
  *
  * `jobs` is the schedule. `job_runs` is one attempt. `jobs_meta` is a singleton
- * (`id` is constrained to 1) recording when a tick last ran, so a restart can
- * see how long the board went without one.
+ * (`id` is constrained to 1) recording when a tick last ran, so a healthcheck
+ * can tell a fresh tick from a stalled loop.
  *
  * `project_id` and `target_pane_id` are loose pointers, same as the other
  * contexts: no foreign key reaches into `projects` or Herdr.
