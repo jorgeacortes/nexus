@@ -6,6 +6,7 @@ import type { TaskStatus } from "@/domain/tasks/task";
 import { dndRef } from "@/lib/dnd";
 import type { TaskDto } from "@/lib/dto";
 import type { LiveAgent } from "@/lib/herdr";
+import { linkedPaneState } from "@/lib/pane-link";
 import { cn } from "@/lib/utils";
 
 import { COLUMN_META } from "./board-meta";
@@ -18,6 +19,7 @@ export function BoardColumn({
   hiddenCount,
   projectNames,
   liveByPaneId,
+  currentByPane,
   onDropTask,
   onSelectTask,
 }: {
@@ -27,6 +29,8 @@ export function BoardColumn({
   hiddenCount: number;
   projectNames: Map<string, string>;
   liveByPaneId: Map<string, LiveAgent>;
+  /** Built from every task, so a filter cannot change which card owns a pane. */
+  currentByPane: Map<string, TaskDto>;
   onDropTask: (taskId: string, status: TaskStatus) => void;
   onSelectTask: (id: string) => void;
 }) {
@@ -58,15 +62,19 @@ export function BoardColumn({
         ref={dndRef<HTMLDivElement>(drop)}
         className={cn("flex-1 space-y-2 overflow-y-auto px-2 pb-3 transition-colors", isOver && "bg-accent/60")}
       >
-        {tasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            projectName={task.projectId ? projectNames.get(task.projectId) : undefined}
-            liveAgent={task.herdrPaneId ? liveByPaneId.get(task.herdrPaneId) : undefined}
-            onSelect={onSelectTask}
-          />
-        ))}
+        {tasks.map((task) => {
+          const liveAgent = task.herdrPaneId ? liveByPaneId.get(task.herdrPaneId) : undefined;
+          return (
+            <TaskCard
+              key={task.id}
+              task={task}
+              projectName={task.projectId ? projectNames.get(task.projectId) : undefined}
+              liveAgent={liveAgent}
+              paneState={linkedPaneState(task, currentByPane, liveAgent !== undefined)}
+              onSelect={onSelectTask}
+            />
+          );
+        })}
         {tasks.length === 0 ? (
           hiddenCount > 0 ? (
             <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">

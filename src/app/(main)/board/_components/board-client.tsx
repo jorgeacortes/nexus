@@ -12,6 +12,7 @@ import { useLiveAgents } from "@/hooks/use-live-agents";
 import { apiFetch } from "@/lib/api";
 import type { ProjectDto, TaskDto } from "@/lib/dto";
 import type { LiveAgent, LiveAgentsPayload } from "@/lib/herdr";
+import { currentTaskByPane, linkedPaneState } from "@/lib/pane-link";
 import { cn } from "@/lib/utils";
 
 import { PageHeader } from "../../_components/page-header";
@@ -41,8 +42,8 @@ import { TaskDetailSheet } from "./task-detail-sheet";
 
 /**
  * The single kanban board. Drag-and-drop PATCHes the task status; the project
- * stays a tag on the card. Cards compose SQLite tasks with live Herdr status by
- * `herdr_pane_id` (polled).
+ * stays a tag on the card. A pane's live status is shown only on the
+ * `in_progress` task that owns it; `herdr_pane_id` on any other card is provenance.
  */
 export function BoardClient({
   initialTasks,
@@ -103,6 +104,10 @@ export function BoardClient({
     return map;
   }, [live.agents]);
 
+  // Every task, not the filtered set: hiding the in-progress card must not
+  // change which task owns the pane.
+  const currentByPane = useMemo(() => currentTaskByPane(tasks), [tasks]);
+
   const projectNames = useMemo(
     () => new Map(initialProjects.map((project) => [project.id, project.name])),
     [initialProjects],
@@ -162,6 +167,7 @@ export function BoardClient({
   );
 
   const selected = tasks.find((task) => task.id === selectedId) ?? null;
+  const selectedLive = selected?.herdrPaneId ? liveByPaneId.get(selected.herdrPaneId) : undefined;
 
   return (
     <>
@@ -208,6 +214,7 @@ export function BoardClient({
               hiddenCount={(totalByStatus.get(status) ?? 0) - (byStatus.get(status)?.length ?? 0)}
               projectNames={projectNames}
               liveByPaneId={liveByPaneId}
+              currentByPane={currentByPane}
               onDropTask={moveTask}
               onSelectTask={setSelectedId}
             />
@@ -219,6 +226,7 @@ export function BoardClient({
         totalByStatus={totalByStatus}
         projectNames={projectNames}
         liveByPaneId={liveByPaneId}
+        currentByPane={currentByPane}
         onSelectTask={setSelectedId}
       />
       {selected ? (
@@ -226,7 +234,8 @@ export function BoardClient({
           key={selected.id}
           task={selected}
           projects={initialProjects}
-          liveAgent={selected.herdrPaneId ? liveByPaneId.get(selected.herdrPaneId) : undefined}
+          liveAgent={selectedLive}
+          paneState={linkedPaneState(selected, currentByPane, selectedLive !== undefined)}
           onClose={() => setSelectedId(null)}
           onUpdated={(updated) => setTasks((list) => list.map((task) => (task.id === updated.id ? updated : task)))}
           onDeleted={(id) => setTasks((list) => list.filter((task) => task.id !== id))}

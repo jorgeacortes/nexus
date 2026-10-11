@@ -1,11 +1,14 @@
 /**
  * The `nx board` join: Nexus tasks (SQLite, via the API) × live Herdr agents.
  *
- * Read-only. A task links to an agent by `herdrPaneId`; unclaimed tasks fall back
- * to a project by the agent pane's cwd, and a task pinned in the agent's topic as
- * `[#<id>]` is shown as a display-only hint. Nothing here is ever persisted.
+ * Read-only. A pane's current task is the `in_progress` one that names it
+ * (`herdrPaneId` on a finished task is provenance, not ownership). Unclaimed
+ * tasks fall back to a project by the agent pane's cwd, and a task pinned in
+ * the agent's topic as `[#<id>]` is shown as a display-only hint. Nothing here
+ * is ever persisted.
  */
 
+import { currentTaskByPane } from "../lib/pane-link";
 import { renderTable, shortId } from "./format";
 import type { LiveAgent, Project, Task } from "./types";
 
@@ -80,16 +83,13 @@ export function buildBoardRows(input: { tasks: Task[]; projects: Project[]; agen
   const rows: DraftRow[] = [];
   const shown = new Set<string>();
 
-  const claimedByPane = new Map<string, Task>();
-  for (const task of tasks) {
-    if (task.herdrPaneId) claimedByPane.set(task.herdrPaneId, task);
-  }
-  const claimedIds = new Set([...claimedByPane.values()].map((task) => task.id));
+  const currentByPane = currentTaskByPane(tasks);
+  const currentIds = new Set([...currentByPane.values()].map((task) => task.id));
 
   for (const agent of agents) {
-    const claimed = claimedByPane.get(agent.paneId) ?? null;
-    const hint = claimed ? null : hintedTask(agent, tasks, claimedIds);
-    const task = claimed ?? hint;
+    const current = currentByPane.get(agent.paneId) ?? null;
+    const hint = current ? null : hintedTask(agent, tasks, currentIds);
+    const task = current ?? hint;
     if (task) shown.add(task.id);
 
     const cwdProject = projectForCwd(agent.cwd, projects);

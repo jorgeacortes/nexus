@@ -105,6 +105,49 @@ describe("buildBoardRows", () => {
     expect(rows[0].task).toContain("~");
   });
 
+  it("pairs a pane with its in-progress task when a done task shares the pane", () => {
+    const working = task({
+      id: "381c548c-0000-4000-8000-000000000000",
+      status: "in_progress",
+      title: "the live one",
+      herdrPaneId: "wP:p9",
+      assignee: "agent",
+    });
+    const finished = task({
+      id: "855c4986-0000-4000-8000-000000000000",
+      status: "done",
+      title: "already done",
+      herdrPaneId: "wP:p9",
+    });
+    const rows = buildBoardRows({
+      tasks: [working, finished],
+      projects: [project()],
+      agents: [agent({ paneId: "wP:p9" })],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].task).toContain("#381c548c the live one");
+    expect(rows[0].taskStatus).toBe("in_progress");
+  });
+
+  it("does not attach a done task to a pane that has no in-progress task", () => {
+    const finished = task({
+      id: "21c9729a-0000-4000-8000-000000000000",
+      status: "done",
+      title: "finished alone",
+      herdrPaneId: "wP:p8",
+    });
+    const rows = buildBoardRows({
+      tasks: [finished],
+      projects: [project()],
+      agents: [agent({ paneId: "wP:p8", status: "idle" })],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].task).toBe("");
+    expect(rows[0].taskStatus).toBe("");
+  });
+
   it("sorts by project, then working agents first", () => {
     const idle = agent({ paneId: "wR:p2", status: "idle", cwd: "/home/sandbox/ws/biznagatec-ws/nexus" });
     const working = agent({ paneId: "wR:p1", status: "working" });

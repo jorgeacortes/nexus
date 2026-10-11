@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { TASK_STATUSES, type TaskStatus } from "@/domain/tasks/task";
 import type { TaskDto } from "@/lib/dto";
 import type { LiveAgent } from "@/lib/herdr";
+import { linkedPaneState } from "@/lib/pane-link";
 import { cn } from "@/lib/utils";
 
 import { COLUMN_META } from "./board-meta";
@@ -23,6 +24,7 @@ export function PhoneBoard({
   totalByStatus,
   projectNames,
   liveByPaneId,
+  currentByPane,
   onSelectTask,
 }: {
   byStatus: Map<TaskStatus, TaskDto[]>;
@@ -30,6 +32,8 @@ export function PhoneBoard({
   totalByStatus: Map<TaskStatus, number>;
   projectNames: Map<string, string>;
   liveByPaneId: Map<string, LiveAgent>;
+  /** Built from every task, so a filter cannot change which card owns a pane. */
+  currentByPane: Map<string, TaskDto>;
   onSelectTask: (id: string) => void;
 }) {
   const [selected, setSelected] = useState<TaskStatus>("backlog");
@@ -95,16 +99,20 @@ export function PhoneBoard({
       </fieldset>
 
       <div className="space-y-2 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom,0px))]">
-        {tasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            projectName={task.projectId ? projectNames.get(task.projectId) : undefined}
-            liveAgent={task.herdrPaneId ? liveByPaneId.get(task.herdrPaneId) : undefined}
-            onSelect={onSelectTask}
-            compact
-          />
-        ))}
+        {tasks.map((task) => {
+          const liveAgent = task.herdrPaneId ? liveByPaneId.get(task.herdrPaneId) : undefined;
+          return (
+            <TaskCard
+              key={task.id}
+              task={task}
+              projectName={task.projectId ? projectNames.get(task.projectId) : undefined}
+              liveAgent={liveAgent}
+              paneState={linkedPaneState(task, currentByPane, liveAgent !== undefined)}
+              onSelect={onSelectTask}
+              compact
+            />
+          );
+        })}
         {tasks.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
             {hiddenCount > 0
