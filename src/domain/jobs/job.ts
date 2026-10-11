@@ -2,7 +2,8 @@
  * A stored job: something the board will hand to a harness when it is due.
  *
  * `state` is the lifecycle (active, paused, dead) and is independent of
- * `enabled`. Dead is the operator's court: `jobNeedsHuman` is true only then.
+ * `enabled`. A dead job is the operator's court, and so is a review job:
+ * `jobNeedsHuman` is true for both.
  * `reviveJob` is the explicit way back to active (a re-run). Pause and resume
  * do not apply to a dead job. These functions do not lease or dispatch.
  */

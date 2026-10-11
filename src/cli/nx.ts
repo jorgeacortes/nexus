@@ -932,6 +932,13 @@ function when(iso: string | null): string {
   return iso ? iso.slice(0, 16).replace("T", " ") : "";
 }
 
+/** Dead is a failed job. A review job is waiting, and its state stays active. */
+function jobStateLabel(job: Job): string {
+  if (job.state === "dead") return "dead · needs you";
+  if (job.kind === "review") return `${job.state} · needs you`;
+  return job.state;
+}
+
 async function jobCommand(argv: string[]): Promise<void> {
   const [action, ...rest] = argv;
   const { positionals, flags } = parseArgs(rest);
@@ -945,7 +952,7 @@ async function jobCommand(argv: string[]): Promise<void> {
           jobs.map((job) => [
             shortId(job.id),
             job.name,
-            job.needsHuman ? "dead · needs you" : job.state,
+            jobStateLabel(job),
             when(job.nextRunAt),
             job.lastStatus ? `${job.lastStatus} ${when(job.lastRunAt)}` : "",
             job.enabled ? "yes" : "no",
@@ -978,9 +985,11 @@ async function jobCommand(argv: string[]): Promise<void> {
     const body = jobWriteBody(flags, { requirePrompt: true });
     const name = typeof body.name === "string" ? body.name : namePositional;
     if (!name)
-      throw new CliError('Usage: nx job add "<name>" --prompt <text> (--schedule <cron> | --interval <seconds>)');
+      throw new CliError(
+        'Usage: nx job add "<name>" --prompt <text> [--kind review] (--schedule <cron> | --interval <seconds>)',
+      );
     body.name = name;
-    if (body.schedule === undefined && body.intervalSeconds === undefined) {
+    if (body.kind !== "review" && body.schedule === undefined && body.intervalSeconds === undefined) {
       throw new CliError("Pass --schedule <cron> or --interval <seconds>.");
     }
     const projectRef = flagValue(flags, "project");
@@ -995,8 +1004,10 @@ async function jobCommand(argv: string[]): Promise<void> {
   if (action === "show") {
     const full = await request<Job>(`/api/jobs/${job.id}`);
     output(flags, full, () => {
-      console.log(`#${shortId(full.id)}  ${full.name}  ${full.needsHuman ? "dead · needs you" : full.state}`);
-      console.log(`  kind ${full.kind}  enabled ${full.enabled ? "yes" : "no"}  mode ${full.targetMode}`);
+      console.log(`#${shortId(full.id)}  ${full.name}  ${jobStateLabel(full)}`);
+      console.log(
+        `  kind ${full.kind}  enabled ${full.enabled ? "yes" : "no"}  mode ${full.targetMode}  predicate ${orDash(full.predicate)}  daily cap ${full.dailyRunCap ?? "—"}`,
+      );
       console.log(
         `  schedule ${orDash(full.schedule)}  interval ${full.intervalSeconds ?? "—"}s  tz ${orDash(full.timezone)}`,
       );
@@ -1079,7 +1090,7 @@ function usage(): void {
   nx archive sweep               archive done tasks completed more than 7 days ago
   nx archive undo <id>           put an archived task back on the board as ready
   nx job list|show <id>
-  nx job add "<name>" --prompt <text> (--schedule <cron> | --interval <seconds>) [--kind schedule|poll|review] [--predicate stale_ready_task] [--daily-cap <n>] [--project <name>] [--pane <id>] [--mode reuse|spawn]
+  nx job add "<name>" --prompt <text> [--kind schedule|poll|review] (--schedule <cron> | --interval <seconds>) [--predicate stale_ready_task] [--daily-cap <n>] [--project <name>] [--pane <id>] [--mode reuse|spawn]
   nx job edit <id> [--name <text>] [--prompt <text>] [--schedule <cron>| -] [--interval <seconds>] [--project <name>]
   nx job pause|resume|run|approve|remove <id>
   nx job tick                    one tick, even when JOBS_ENABLED is off
@@ -1122,8 +1133,11 @@ function usage(): void {
 
   \`nx job\` is the operator surface for stored jobs. A dead job (retries
   exhausted) shows as needing you; \`nx job run\` revives it and dispatches it.
-  \`nx job pause\` keeps the tick from claiming it. \`nx job tick\` runs one pass
-  even when JOBS_ENABLED is off — that switch stops the compose loop only.
+  A review job has no schedule: the tick never claims it, and \`nx job approve\`
+  is what runs it. A poll job still needs a schedule and \`--predicate
+  stale_ready_task\`. \`nx job pause\` keeps the tick from claiming a job.
+  \`nx job tick\` runs one pass even when JOBS_ENABLED is off — that switch
+  stops the compose loop only.
 
   The board comes from NEXUS_URL, then ${configPath()}, then the first of
   ${candidateUrls().join(", ")} that answers.`);
