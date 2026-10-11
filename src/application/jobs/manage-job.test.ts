@@ -79,4 +79,24 @@ describe("manage jobs", () => {
     await removeJob(deps(), created.id);
     expect(await jobs.findById(created.id)).toBeNull();
   });
+
+  it("stores a review job with no schedule and a poll job with its predicate", async () => {
+    const review = await createJob(deps(), { name: "propose", prompt: "Look at this.", kind: "review", now: NOW });
+    expect(review).toMatchObject({ kind: "review", nextRunAt: null, predicate: null });
+    expect(jobNeedsHuman(review)).toBe(true);
+
+    const poll = await createJob(deps(), {
+      name: "stale",
+      prompt: "Claim it.",
+      kind: "poll",
+      predicate: "stale_ready_task",
+      intervalSeconds: 600,
+      dailyRunCap: 2,
+      now: NOW,
+    });
+    expect(poll).toMatchObject({ kind: "poll", predicate: "stale_ready_task", dailyRunCap: 2 });
+    await expect(
+      createJob(deps(), { name: "bad", prompt: "x", kind: "poll", intervalSeconds: 60, now: NOW }),
+    ).rejects.toThrow(/predicate/);
+  });
 });

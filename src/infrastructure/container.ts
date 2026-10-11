@@ -14,6 +14,7 @@ import { UnarchiveTaskUseCase } from "@/application/tasks/unarchive-task";
 import type { DispatchRepository } from "@/domain/dispatch/dispatch.repository";
 import type { HarnessPort } from "@/domain/dispatch/harness";
 import type { DispatchProjectPort, ProjectWorkspacePort } from "@/domain/dispatch/project-workspace";
+import { hasStaleReadyTask } from "@/domain/jobs/predicate";
 import type { ProjectRepository } from "@/domain/projects/project.repository";
 import type { AgentPromptPort } from "@/domain/tasks/agent-prompt";
 import type { FinishedTaskDispatchPort } from "@/domain/tasks/finished-task-dispatch";
@@ -205,4 +206,10 @@ export const jobRunner: RunDueJobsDeps = {
   liveAgents,
   harness,
   leaseOwner: `${hostname()}:${process.pid}`,
+  predicates: {
+    holds: async (name, now) => {
+      if (name !== "stale_ready_task") return false;
+      return hasStaleReadyTask(await taskRepo.findAll(), now);
+    },
+  },
 };

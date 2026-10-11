@@ -55,6 +55,11 @@ export function JobsTable({ jobs, projects }: { jobs: JobDto[]; projects: Projec
                           ? ` · every ${job.intervalSeconds}s`
                           : ""}
                     </div>
+                    {job.kind === "review" ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Waits for approval. The tick will not run it.
+                      </div>
+                    ) : null}
                     {job.needsHuman ? (
                       <div className="mt-2">
                         <NeedsHumanBadge reason={job.lastError} />

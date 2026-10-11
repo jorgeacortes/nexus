@@ -1,5 +1,15 @@
 import { JobNotFoundError } from "@/application/jobs/run-due-jobs.usecase";
-import { type Job, JobValidationError, pauseJob, resumeJob, type TargetMode } from "@/domain/jobs/job";
+import {
+  isJobKind,
+  isJobPredicate,
+  JOB_PREDICATES,
+  type Job,
+  type JobKind,
+  JobValidationError,
+  pauseJob,
+  resumeJob,
+  type TargetMode,
+} from "@/domain/jobs/job";
 import type { JobRepository } from "@/domain/jobs/job.repository";
 import { nextRunAt, ScheduleError } from "@/domain/jobs/schedule";
 
@@ -15,6 +25,9 @@ export type ManageJobDeps = {
 export type CreateJobInput = {
   name: string;
   prompt: string;
+  kind?: JobKind;
+  predicate?: string | null;
+  dailyRunCap?: number | null;
   schedule?: string | null;
   intervalSeconds?: number | null;
   timezone?: string | null;
@@ -30,6 +43,9 @@ export type CreateJobInput = {
 export type EditJobInput = {
   name?: string;
   prompt?: string;
+  kind?: JobKind;
+  predicate?: string | null;
+  dailyRunCap?: number | null;
   schedule?: string | null;
   intervalSeconds?: number | null;
   timezone?: string | null;
@@ -53,22 +69,29 @@ export async function createJob(deps: ManageJobDeps, input: CreateJobInput): Pro
   const now = input.now ?? new Date();
   const name = requireText(input.name, "A job needs a name.");
   const prompt = requireText(input.prompt, "A job needs a prompt.");
+  const kind = input.kind ?? "schedule";
   const schedule = blankToNull(input.schedule);
   const intervalSeconds = input.intervalSeconds ?? null;
-  if (!schedule && (intervalSeconds == null || intervalSeconds <= 0)) {
+  const predicate = requirePredicate(kind, input.predicate);
+  if (kind !== "review" && !schedule && (intervalSeconds == null || intervalSeconds <= 0)) {
     throw new JobValidationError("A job needs a cron schedule or an interval greater than zero.");
   }
   const projectId = blankToNull(input.projectId);
   await requireProject(deps, projectId);
-  const due = dueAt(schedule, intervalSeconds, input.timezone, now);
+  const due =
+    schedule || (intervalSeconds != null && intervalSeconds > 0)
+      ? dueAt(schedule, intervalSeconds, input.timezone, now)
+      : null;
   return deps.jobs.insert({
     id: crypto.randomUUID(),
     name,
-    kind: "schedule",
+    kind,
     schedule,
     intervalSeconds: schedule ? null : intervalSeconds,
     timezone: blankToNull(input.timezone),
     prompt,
+    predicate,
+    dailyRunCap: normalizeCap(input.dailyRunCap),
     projectId,
     targetPaneId: blankToNull(input.targetPaneId),
     targetMode: input.targetMode ?? "reuse",
@@ -97,7 +120,9 @@ export async function editJob(deps: ManageJobDeps, id: string, input: EditJobInp
   const now = input.now ?? new Date();
   const schedule = input.schedule === undefined ? current.schedule : blankToNull(input.schedule);
   const intervalSeconds = input.intervalSeconds === undefined ? current.intervalSeconds : input.intervalSeconds;
-  if (!schedule && (intervalSeconds == null || intervalSeconds <= 0)) {
+  const kind = input.kind ?? current.kind;
+  const predicate = requirePredicate(kind, input.predicate === undefined ? current.predicate : input.predicate);
+  if (kind !== "review" && !schedule && (intervalSeconds == null || intervalSeconds <= 0)) {
     throw new JobValidationError("A job needs a cron schedule or an interval greater than zero.");
   }
   const projectId = input.projectId === undefined ? current.projectId : blankToNull(input.projectId);
@@ -110,6 +135,9 @@ export async function editJob(deps: ManageJobDeps, id: string, input: EditJobInp
     ...current,
     name: input.name === undefined ? current.name : requireText(input.name, "A job needs a name."),
     prompt: input.prompt === undefined ? current.prompt : requireText(input.prompt, "A job needs a prompt."),
+    kind,
+    predicate,
+    dailyRunCap: input.dailyRunCap === undefined ? current.dailyRunCap : normalizeCap(input.dailyRunCap),
     schedule,
     intervalSeconds: schedule ? null : intervalSeconds,
     timezone: input.timezone === undefined ? current.timezone : blankToNull(input.timezone),
@@ -167,6 +195,26 @@ function dueAt(
     if (error instanceof ScheduleError) throw new JobValidationError(error.message);
     throw error;
   }
+}
+
+function requirePredicate(kind: JobKind, predicate: string | null | undefined): string | null {
+  if (!isJobKind(kind)) {
+    throw new JobValidationError(`Unknown job kind "${String(kind)}".`);
+  }
+  if (kind !== "poll") return null;
+  const name = predicate?.trim() ?? "";
+  if (!isJobPredicate(name)) {
+    throw new JobValidationError(`A poll job needs a predicate: ${JOB_PREDICATES.join(", ")}.`);
+  }
+  return name;
+}
+
+function normalizeCap(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new JobValidationError("A daily run cap must be a whole number greater than zero.");
+  }
+  return value;
 }
 
 function requireText(value: string, message: string): string {

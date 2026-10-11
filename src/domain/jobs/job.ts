@@ -9,8 +9,12 @@
 
 import type { Effort, Harness } from "@/domain/tasks/task";
 
-export const JOB_KINDS = ["schedule"] as const;
+export const JOB_KINDS = ["schedule", "poll", "review"] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
+
+/** Named checks a poll job evaluates. A tick dispatches only when the check is true. */
+export const JOB_PREDICATES = ["stale_ready_task"] as const;
+export type JobPredicate = (typeof JOB_PREDICATES)[number];
 
 export const JOB_STATES = ["active", "paused", "dead"] as const;
 export type JobState = (typeof JOB_STATES)[number];
@@ -51,6 +55,10 @@ export function isJobKind(value: unknown): value is JobKind {
   return typeof value === "string" && (JOB_KINDS as readonly string[]).includes(value);
 }
 
+export function isJobPredicate(value: unknown): value is JobPredicate {
+  return typeof value === "string" && (JOB_PREDICATES as readonly string[]).includes(value);
+}
+
 export function isTargetMode(value: unknown): value is TargetMode {
   return typeof value === "string" && (TARGET_MODES as readonly string[]).includes(value);
 }
@@ -67,6 +75,10 @@ export type Job = {
   intervalSeconds: number | null;
   timezone: string | null;
   prompt: string;
+  /** Set only for `kind: poll`. A schedule or review job leaves this null. */
+  predicate: string | null;
+  /** Tick stops dispatching once this many runs have started since UTC midnight. Null means no cap. */
+  dailyRunCap: number | null;
   projectId: string | null;
   targetPaneId: string | null;
   targetMode: TargetMode;
@@ -134,9 +146,12 @@ export function markJobDead(job: Job, now?: Date): Job {
   return transitionJob(job, "dead", now);
 }
 
-/** A dead-lettered job is waiting on the operator. */
-export function jobNeedsHuman(job: Pick<Job, "state">): boolean {
-  return job.state === "dead";
+/**
+ * A dead-lettered job is waiting on the operator. A review job always is: the
+ * tick never dispatches it, and each run waits for an approval.
+ */
+export function jobNeedsHuman(job: Pick<Job, "state" | "kind">): boolean {
+  return job.state === "dead" || job.kind === "review";
 }
 
 /**

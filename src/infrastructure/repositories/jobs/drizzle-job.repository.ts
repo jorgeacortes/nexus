@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 
 import {
   isJobKind,
@@ -70,6 +70,8 @@ function toJob(row: JobRow): Job {
     intervalSeconds: row.intervalSeconds,
     timezone: row.timezone,
     prompt: row.prompt,
+    predicate: row.predicate,
+    dailyRunCap: row.dailyRunCap,
     projectId: row.projectId,
     targetPaneId: row.targetPaneId,
     targetMode: toTargetMode(row.targetMode),
@@ -121,6 +123,8 @@ function toJobRow(job: Job) {
     intervalSeconds: job.intervalSeconds,
     timezone: job.timezone,
     prompt: job.prompt,
+    predicate: job.predicate,
+    dailyRunCap: job.dailyRunCap,
     projectId: job.projectId,
     targetPaneId: job.targetPaneId,
     targetMode: job.targetMode,
@@ -148,6 +152,8 @@ function dueWhere(nowIso: string, options?: { ignoreSchedule?: boolean }) {
   return and(
     eq(jobs.enabled, true),
     eq(jobs.state, "active"),
+    // A review job is a decision. The tick never claims it; an approval does.
+    options?.ignoreSchedule ? undefined : ne(jobs.kind, "review"),
     options?.ignoreSchedule ? undefined : and(isNotNull(jobs.nextRunAt), lte(jobs.nextRunAt, nowIso)),
     or(isNull(jobs.leaseUntil), lte(jobs.leaseUntil, nowIso)),
   );
@@ -201,6 +207,15 @@ export class DrizzleJobRepository implements JobRepository {
 
   async list(): Promise<Job[]> {
     return this.db.select().from(jobs).orderBy(asc(jobs.nextRunAt), asc(jobs.id)).all().map(toJob);
+  }
+
+  async runsStartedSince(jobId: string, since: Date): Promise<number> {
+    const rows = this.db
+      .select({ id: jobRuns.id })
+      .from(jobRuns)
+      .where(and(eq(jobRuns.jobId, jobId), gte(jobRuns.startedAt, since.toISOString())))
+      .all();
+    return rows.length;
   }
 
   async delete(id: string): Promise<void> {

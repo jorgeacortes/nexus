@@ -59,6 +59,8 @@ describe("jobs migration", () => {
       "lease_until",
       "created_at",
       "updated_at",
+      "predicate",
+      "daily_run_cap",
     ]);
 
     sqlite

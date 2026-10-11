@@ -148,6 +148,8 @@ export type Job = {
   id: string;
   name: string;
   kind: string;
+  predicate: string | null;
+  dailyRunCap: number | null;
   schedule: string | null;
   intervalSeconds: number | null;
   timezone: string | null;

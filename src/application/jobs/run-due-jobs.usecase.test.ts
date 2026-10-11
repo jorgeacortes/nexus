@@ -32,6 +32,8 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     intervalSeconds: 3600,
     timezone: "UTC",
     prompt: "Check the board.",
+    predicate: null,
+    dailyRunCap: null,
     projectId: null,
     targetPaneId: PANE,
     targetMode: "reuse",
@@ -849,5 +851,47 @@ describe("runJobNow", () => {
     const stored = await repo.findById("job-dead");
     expect(stored).toMatchObject({ state: "active", retryCount: 0, lastError: null, lastStatus: "ok" });
     expect(stored?.nextRunAt).not.toBeNull();
+  });
+
+  it("does not dispatch a review job, a poll whose check is false, or a job over its daily cap", async () => {
+    await repo.insert(makeJob({ id: "job-review", kind: "review", nextRunAt: hoursBefore(1) }));
+    await repo.insert(
+      makeJob({
+        id: "job-poll",
+        kind: "poll",
+        predicate: "stale_ready_task",
+        intervalSeconds: 600,
+        nextRunAt: hoursBefore(1),
+      }),
+    );
+    await repo.insert(makeJob({ id: "job-capped", dailyRunCap: 1, intervalSeconds: 3600, nextRunAt: hoursBefore(1) }));
+    await repo.insertRun({
+      id: "run-today",
+      jobId: "job-capped",
+      startedAt: NOW,
+      finishedAt: NOW,
+      status: "ok",
+      paneId: PANE,
+      leaseOwner: "tick",
+      prompt: "earlier",
+      output: null,
+      error: null,
+    });
+
+    const sent = prompts();
+    const report = await runDueJobs(
+      {
+        ...deps(sent),
+        predicates: { holds: async () => false },
+      },
+      { now: NOW, limit: 5 },
+    );
+
+    expect(sent.calls).toHaveLength(0);
+    expect(report.runs).toEqual([]);
+    expect((await repo.findById("job-review"))?.runCount).toBe(0);
+    expect((await repo.findById("job-poll"))?.nextRunAt?.getTime()).toBe(NOW.getTime() + 600_000 - 1);
+    expect((await repo.findById("job-capped"))?.runCount).toBe(0);
+    expect((await repo.findById("job-capped"))?.nextRunAt?.getTime()).toBeGreaterThan(NOW.getTime());
   });
 });

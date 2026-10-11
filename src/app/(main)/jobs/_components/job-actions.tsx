@@ -50,7 +50,17 @@ export function JobActions({ job }: { job: JobDto }) {
           {pending === "resume" ? "Resuming..." : "Resume"}
         </Button>
       ) : null}
-      {job.state !== "paused" ? (
+      {job.state !== "paused" && job.kind === "review" ? (
+        <Button
+          type="button"
+          size="sm"
+          disabled={pending !== null}
+          onClick={() => act("approve", `/api/jobs/${job.id}`, { action: "approve" }, `"${job.name}" was approved`)}
+        >
+          {pending === "approve" ? "Approving..." : "Approve"}
+        </Button>
+      ) : null}
+      {job.state !== "paused" && job.kind !== "review" ? (
         <Button
           type="button"
           size="sm"

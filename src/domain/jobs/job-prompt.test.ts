@@ -14,6 +14,8 @@ function job(): Job {
     intervalSeconds: null,
     timezone: "Europe/Madrid",
     prompt: "Check the board.",
+    predicate: null,
+    dailyRunCap: null,
     projectId: null,
     targetPaneId: null,
     targetMode: "reuse",

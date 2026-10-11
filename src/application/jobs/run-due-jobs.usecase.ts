@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { isTimeoutError, JobPaneError, placeJobPane } from "@/application/jobs/place-job-pane";
 import type { HarnessPort } from "@/domain/dispatch/harness";
 import { expandHome } from "@/domain/dispatch/placement";
-import { type Job, type JobRunStatus, type JobState, markJobDead, reviveJob } from "@/domain/jobs/job";
+import { isJobPredicate, type Job, type JobRunStatus, type JobState, markJobDead, reviveJob } from "@/domain/jobs/job";
 import type { FinalizeJobInput, JobRepository, ReapPatch } from "@/domain/jobs/job.repository";
 import { buildJobPrompt, type JobPromptProject } from "@/domain/jobs/job-prompt";
 import { leaseDeadline, planDispatchFailure, runTimeoutMs } from "@/domain/jobs/run-policy";
@@ -25,10 +25,17 @@ export interface JobAgentPort {
   read(paneId: string): Promise<string>;
 }
 
+export interface JobPredicatePort {
+  /** Whether this named check holds at `now`. */
+  holds(name: string, now: Date): Promise<boolean>;
+}
+
 export type RunDueJobsDeps = {
   jobs: JobRepository;
   projects: JobProjectPort;
   agentPrompt: JobAgentPort;
+  /** Poll jobs ask this before a dispatch. A missing port treats every check as false. */
+  predicates?: JobPredicatePort;
   liveAgents: LiveAgentPort;
   /**
    * Dispatch topology for `target_mode: spawn` (reuse a bare shell or create a
@@ -103,11 +110,17 @@ export async function runDueJobs(deps: RunDueJobsDeps, input: RunDueJobsInput): 
   }
 
   const reaped = await deps.jobs.reapExpired(now, (job, hasRunning) => reapPatch(job, hasRunning, now));
-  const due = await deps.jobs.selectDue(now, limit);
+  // A deferred poll or a capped job does not consume a slot, so read past the claim limit.
+  const due = await deps.jobs.selectDue(now, Math.max(limit, 1) * 5);
   const lost: string[] = [];
   const runs: RunDueJobsRun[] = [];
+  const considered: string[] = [];
+  let claimedCount = 0;
 
   for (const candidate of due) {
+    if (claimedCount >= limit) break;
+    considered.push(candidate.id);
+    if (await deferUnready(deps, candidate, now)) continue;
     const project = candidate.projectId ? await deps.projects.find(candidate.projectId) : null;
     const prompt = buildJobPrompt(candidate, project);
     const claimed = await deps.jobs.claim(candidate.id, {
@@ -123,12 +136,13 @@ export async function runDueJobs(deps: RunDueJobsDeps, input: RunDueJobsInput): 
 
     const outcome = await dispatchClaimed(deps, claimed.job, claimed.run.id, prompt, project, leaseOwner, now);
     runs.push(outcome);
+    claimedCount += 1;
   }
 
   const meta = await deps.jobs.writeLastTick(now);
   return {
     dryRun: false,
-    due: due.map((job) => job.id),
+    due: considered,
     reaped,
     lost,
     runs,
@@ -179,6 +193,63 @@ export async function runJobNow(deps: RunDueJobsDeps, id: string, now: Date): Pr
     throw new JobNotRunnableError(`Job "${job.name}" is already running.`);
   }
   return dispatchClaimed(deps, claimed.job, claimed.run.id, prompt, project, leaseOwner, now);
+}
+
+/**
+ * A poll whose check is false, or a job that already used its daily runs, moves
+ * its next time forward and is not claimed. Returns true when the tick should
+ * skip this row.
+ */
+async function deferUnready(deps: RunDueJobsDeps, job: Job, now: Date): Promise<boolean> {
+  const cap = job.dailyRunCap;
+  if (cap != null && cap > 0) {
+    const started = await deps.jobs.runsStartedSince(job.id, startOfUtcDay(now));
+    if (started >= cap) {
+      await reschedule(deps, job, now, nextSlotAfter(job, startOfNextUtcDay(now)));
+      return true;
+    }
+  }
+  if (job.kind !== "poll") return false;
+  if (!isJobPredicate(job.predicate)) {
+    await reschedule(deps, job, now, nextSlotAfter(job, now), `Unknown poll predicate "${job.predicate ?? ""}".`);
+    return true;
+  }
+  const holds = (await deps.predicates?.holds(job.predicate, now)) ?? false;
+  if (holds) return false;
+  await reschedule(deps, job, now, nextSlotAfter(job, now));
+  return true;
+}
+
+async function reschedule(
+  deps: RunDueJobsDeps,
+  job: Job,
+  now: Date,
+  nextRunAt: Date,
+  lastError?: string,
+): Promise<void> {
+  await deps.jobs.update({
+    ...job,
+    nextRunAt,
+    lastError: lastError ?? job.lastError,
+    updatedAt: now,
+  });
+}
+
+function startOfUtcDay(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function startOfNextUtcDay(now: Date): Date {
+  return new Date(startOfUtcDay(now).getTime() + 24 * 60 * 60 * 1000);
+}
+
+/** The first schedule slot at or after `after`. `nextScheduleAt` is strictly after its argument. */
+function nextSlotAfter(job: Job, after: Date): Date {
+  try {
+    return nextScheduleAt(job, new Date(after.getTime() - 1));
+  } catch {
+    return new Date(after.getTime() + 60 * 60 * 1000);
+  }
 }
 
 function normalizeLimit(limit: number | undefined): number {

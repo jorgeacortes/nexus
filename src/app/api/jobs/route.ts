@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createJob, listJobs } from "@/application/jobs/manage-job";
-import { TARGET_MODES } from "@/domain/jobs/job";
+import { JOB_KINDS, JOB_PREDICATES, TARGET_MODES } from "@/domain/jobs/job";
 import { jobRepo, projectReference } from "@/infrastructure/container";
 import { toJobDto } from "@/lib/dto";
 
@@ -11,6 +11,9 @@ import { jobFailure, jobJson, zodMessage } from "./http";
 const createSchema = z.object({
   name: z.string().min(1, "A job needs a name."),
   prompt: z.string().min(1, "A job needs a prompt."),
+  kind: z.enum(JOB_KINDS).optional(),
+  predicate: z.enum(JOB_PREDICATES).nullable().optional(),
+  dailyRunCap: z.number().int().positive().nullable().optional(),
   schedule: z.string().nullable().optional(),
   intervalSeconds: z.number().int().positive().nullable().optional(),
   timezone: z.string().nullable().optional(),

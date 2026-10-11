@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { editJob, pauseManagedJob, removeJob, resumeManagedJob } from "@/application/jobs/manage-job";
-import { TARGET_MODES } from "@/domain/jobs/job";
-import { jobRepo, projectReference } from "@/infrastructure/container";
+import { runJobNow } from "@/application/jobs/run-due-jobs.usecase";
+import { JOB_KINDS, JOB_PREDICATES, JobValidationError, TARGET_MODES } from "@/domain/jobs/job";
+import { jobRepo, jobRunner, projectReference } from "@/infrastructure/container";
 import { toJobDto } from "@/lib/dto";
 
 import { jobFailure, jobJson, zodMessage } from "../http";
@@ -12,6 +13,9 @@ const patchSchema = z
   .object({
     name: z.string().min(1).optional(),
     prompt: z.string().min(1).optional(),
+    kind: z.enum(JOB_KINDS).optional(),
+    predicate: z.enum(JOB_PREDICATES).nullable().optional(),
+    dailyRunCap: z.number().int().positive().nullable().optional(),
     schedule: z.string().nullable().optional(),
     intervalSeconds: z.number().int().positive().nullable().optional(),
     timezone: z.string().nullable().optional(),
@@ -21,7 +25,7 @@ const patchSchema = z
     maxRetries: z.number().int().nonnegative().optional(),
     timeoutSeconds: z.number().int().positive().nullable().optional(),
     enabled: z.boolean().optional(),
-    action: z.enum(["pause", "resume", "remove"]).optional(),
+    action: z.enum(["pause", "resume", "remove", "approve"]).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, {
     message: "Pass a field to edit, or action pause, resume, or remove.",
@@ -59,6 +63,20 @@ export async function PATCH(request: Request, context: RouteContext<"/api/jobs/[
     }
     if (action === "resume") {
       return jobJson(await resumeManagedJob(deps, id));
+    }
+    if (action === "approve") {
+      const existing = await jobRepo.findById(id);
+      if (!existing) {
+        return NextResponse.json({ data: null, error: `Job ${id} not found.` }, { status: 404 });
+      }
+      if (existing.kind !== "review") {
+        throw new JobValidationError(
+          `Job "${existing.name}" is a ${existing.kind} job. Only a review job is approved.`,
+        );
+      }
+      const run = await runJobNow(jobRunner, id, new Date());
+      const job = await jobRepo.findById(id);
+      return NextResponse.json({ data: { run, job: job ? toJobDto(job) : null }, error: null });
     }
     return jobJson(await editJob(deps, id, fields));
   } catch (error) {

@@ -22,6 +22,8 @@ export const jobs = sqliteTable(
     intervalSeconds: integer("interval_seconds"),
     timezone: text("timezone"),
     prompt: text("prompt").notNull(),
+    predicate: text("predicate"),
+    dailyRunCap: integer("daily_run_cap"),
     projectId: text("project_id"),
     targetPaneId: text("target_pane_id"),
     targetMode: text("target_mode").notNull().default("reuse"),

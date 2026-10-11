@@ -54,6 +54,8 @@ export interface JobRepository {
   list(): Promise<Job[]>;
   /** Deletes the job and its run history. */
   delete(id: string): Promise<void>;
+  /** Runs whose `startedAt` is at or after `since`. The daily cap counts these. */
+  runsStartedSince(jobId: string, since: Date): Promise<number>;
   runsFor(jobId: string): Promise<JobRun[]>;
   readMeta(): Promise<JobsMeta | null>;
 

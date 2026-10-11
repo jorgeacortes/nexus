@@ -887,6 +887,17 @@ function jobWriteBody(flags: Map<string, string | true>, options: { requirePromp
   const body: Record<string, unknown> = {};
   const name = flagValue(flags, "name");
   if (name !== null) body.name = name;
+  const kind = flagValue(flags, "kind");
+  if (kind !== null) {
+    if (kind !== "schedule" && kind !== "poll" && kind !== "review") {
+      throw new CliError(`--kind must be schedule, poll, or review (got "${kind}").`);
+    }
+    body.kind = kind;
+  }
+  const predicate = flagValue(flags, "predicate");
+  if (predicate !== null) body.predicate = predicate;
+  const dailyCap = wholeNumberFlag(flags, "daily-cap");
+  if (dailyCap !== undefined) body.dailyRunCap = dailyCap;
   const prompt = flagValue(flags, "prompt");
   if (prompt !== null) body.prompt = parseDescription(prompt);
   else if (options.requirePrompt) throw new CliError("A job needs --prompt <text> (or @file).");
@@ -1023,6 +1034,19 @@ async function jobCommand(argv: string[]): Promise<void> {
     return;
   }
 
+  if (action === "approve") {
+    if (job.kind !== "review") {
+      throw new CliError(`#${shortId(job.id)} ${job.name} is a ${job.kind} job. Only a review job is approved.`);
+    }
+    const result = await request<JobRunResult>(`/api/jobs/${job.id}`, { method: "PATCH", body: { action: "approve" } });
+    output(flags, result, () => {
+      const pane = result.run.paneId ? ` on ${result.run.paneId}` : "";
+      const error = result.run.error ? ` — ${result.run.error}` : "";
+      console.log(`Approved #${shortId(job.id)} ${job.name}  ${result.run.status}${pane}${error}`);
+    });
+    return;
+  }
+
   if (action === "run") {
     const result = await request<JobRunResult>(`/api/jobs/${job.id}/run`, { method: "POST", body: {} });
     output(flags, result, () => {
@@ -1033,7 +1057,7 @@ async function jobCommand(argv: string[]): Promise<void> {
     return;
   }
 
-  throw new CliError("Usage: nx job list|show|add|edit|pause|resume|run|remove|tick. Run `nx help` for flags.");
+  throw new CliError("Usage: nx job list|show|add|edit|pause|resume|run|approve|remove|tick. Run `nx help` for flags.");
 }
 
 function usage(): void {
@@ -1055,9 +1079,9 @@ function usage(): void {
   nx archive sweep               archive done tasks completed more than 7 days ago
   nx archive undo <id>           put an archived task back on the board as ready
   nx job list|show <id>
-  nx job add "<name>" --prompt <text> (--schedule <cron> | --interval <seconds>) [--project <name>] [--pane <id>] [--mode reuse|spawn]
+  nx job add "<name>" --prompt <text> (--schedule <cron> | --interval <seconds>) [--kind schedule|poll|review] [--predicate stale_ready_task] [--daily-cap <n>] [--project <name>] [--pane <id>] [--mode reuse|spawn]
   nx job edit <id> [--name <text>] [--prompt <text>] [--schedule <cron>| -] [--interval <seconds>] [--project <name>]
-  nx job pause|resume|run|remove <id>
+  nx job pause|resume|run|approve|remove <id>
   nx job tick                    one tick, even when JOBS_ENABLED is off
   nx board [--watch [seconds]]   live join of tasks and Herdr agents (default 10s)
   nx assign <id> --to <pane-id|auto>  push the task's prompt into an existing Herdr pane

@@ -219,6 +219,17 @@ column). It stays visible on `/jobs`, and `nx job run` (or Run now) revives it
 and dispatches it. Pause still refuses a run, so a paused job is not claimed
 on the next tick.
 
+A `review` job is a decision: the tick never claims it, the Jobs screen shows
+it as needing you, and `nx job approve` is the run. A `poll` job checks
+`stale_ready_task` (an unclaimed ready task untouched for a day) on its
+schedule and dispatches only when that is true. `dailyRunCap` stops the tick
+after that many runs have started since UTC midnight; `nx job run` is not
+capped. `enabled` is the per-job kill switch, and `JOB_CONCURRENCY` is already
+how many due jobs one tick may claim. NagaBot's routine clock
+(`nagabot/src/routines/clock.ts`) still submits into its own durable
+conversations. Folding that clock into this table is a separate decision: the
+live clock is not the JSON routine store the jobs assessment described.
+
 ## Which model is the agent running?
 
 **Decision: the harness's own session state is authoritative for the model; Herdr's
