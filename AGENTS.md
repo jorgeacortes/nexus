@@ -34,6 +34,8 @@ pnpm validate        # biome + typecheck + vitest
 pnpm db:generate     # drizzle-kit generate (tasks schema)
 pnpm db:migrate      # apply SQLite migrations
 pnpm db:studio
+pnpm backup:data             # snapshot ./data and upload to R2
+pnpm backup:data -- --dry-run
 ```
 
 ## Architecture
@@ -264,6 +266,37 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
   snapshot and labels it. Rows are marked when their port is `HOST_PORT` (the
   deployed board) or `PORT` (dev), and the list is filterable by app, folder,
   container, runtime, port, process, pid, or address.
+
+## Database backup
+
+Daily snapshot of the host's bind-mounted `./data` (what Compose publishes into
+the container), uploaded to the **existing** biznagatec-os R2 bucket under the
+prefix `nexus`. Do not create a bucket, do not add a Compose backup profile, and
+do not add a `fnox.toml`.
+
+- Code: `src/infrastructure/backup/{config,archive,aws-signature-v4,r2.client}.ts`,
+  entrypoint `src/scripts/backup-data.ts`, wrapper `scripts/backup-data.sh`.
+  `pnpm backup:data` runs the TypeScript entry. `--dry-run` writes the tar.gz and
+  skips upload and retention prune; a real run requires R2 config.
+- SQLite is snapshotted with `better-sqlite3`'s backup API (readonly). WAL/SHM
+  sidecars and previous archives in `./data` are skipped. The object key is
+  `nexus/data-<ISO-stamp>.tar.gz`.
+- `.env.example` documents `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_BACKUP_PREFIX=nexus`,
+  and `BACKUP_RETENTION_DAYS` (default 30). `R2_ACCESS_KEY_ID` and
+  `R2_SECRET_ACCESS_KEY` are secrets: the wrapper sources `.env.local` (gitignored)
+  and injects them with `fnox exec` when `FNOX_AGE_KEY` or `FNOX_AGE_KEY_FILE` is
+  set. Never commit `.env.local`.
+- Cron, from the shell script header (install it only when a dry-run can succeed):
+
+```
+10 3 * * * /home/sandbox/ws/biznagatec-ws/nexus/scripts/backup-data.sh >> /home/sandbox/.logs/nexus-backup.log 2>&1
+```
+
+Restore: `pnpm docker:down`, unpack the archive so `data/nexus.db` is on disk,
+`sqlite3 data/nexus.db 'PRAGMA integrity_check;'` must print `ok`, then replace
+`./data/nexus.db` and delete `nexus.db-wal`, `nexus.db-shm`, and `nexus.db-journal`
+before `pnpm docker:up`. Leaving the sidecars would replay the old WAL over the
+restored snapshot. See `README.md`.
 
 ## Branding
 

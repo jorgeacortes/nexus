@@ -3,6 +3,7 @@ node_modules/
 data/
 data-dev/
 .env
+.env*.local
 *.tsbuildinfo
 next-env.d.ts
 coverage/
