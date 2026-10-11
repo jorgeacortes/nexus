@@ -176,8 +176,11 @@ foreground process. Herdr has no pre-close hook, so a raw `herdr tab close` cann
 be blocked — the guard covers the `nx` path only, and closing a workspace's **last**
 tab destroys the workspace. Flow and rationale: `DESIGN-dispatch.md`.
 
-There is still **no dispatcher daemon**: `nx dispatch` is one-shot, and nothing
-decides *when* to dispatch yet (the jobs table + `nx job tick` are not built).
+`nx dispatch` is one-shot. A stored job is ticked by a separate process,
+`pnpm jobs:tick` (`scripts/jobs-tick.ts`), which the compose `jobs` service
+runs with `--loop`. The Next.js process has no scheduler. The tick calls
+`runDueJobs` and prompts a pane that already exists, and only when
+`JOBS_ENABLED=1` (the default is off).
 
 ## Deployment (Docker Compose)
 
@@ -202,6 +205,16 @@ BIND_ADDRESS=127.0.0.1 pnpm docker:up  # bind loopback only
 - The host Herdr socket directory (`~/.config/herdr`, override with
   `HERDR_CONFIG_DIR`) is mounted read-only at `/herdr` and `HERDR_SOCKET` points
   the app at it.
+- The `jobs` service runs `tsx scripts/jobs-tick.ts --loop` from the same
+  image. It mounts `./data` and that Herdr socket, starts as the host uid, and
+  leaves migrations to the `nexus` service. `JOBS_ENABLED` defaults to `0`, so
+  a compose up does not dispatch. `JOB_CONCURRENCY` (default `1`),
+  `JOB_TICK_SECONDS` (default `60`), and `JOB_DRY_RUN` are the other knobs
+  (see `.env.example`). Restart the jobs container after changing them. The
+  service is healthy once `jobs_meta.last_tick_at` is under two tick intervals
+  old; until a real tick has written that row, the healthcheck fails. A host
+  one-shot is `DATA_DIR=./data-dev pnpm jobs:tick -- --once --dry-run` — the
+  default `DATA_DIR` is `./data`.
 - The container runs with `pid: host` and a minimal capability set
   (`SYS_PTRACE`, `DAC_OVERRIDE`, `apparmor=unconfined`) so the **Servers** screen
   can read the host's listening sockets from `/proc` and name the owning process

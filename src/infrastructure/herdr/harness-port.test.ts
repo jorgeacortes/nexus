@@ -326,3 +326,61 @@ describe("HerdrClient HarnessPort writes", () => {
     await expect(client.closeTab("wN:t9")).rejects.toThrow("tab not found");
   });
 });
+
+describe("HerdrClient agent prompt and read", () => {
+  it("submits a prompt without waiting when the caller sets no deadline", async () => {
+    const { client, calls } = clientAnswering({ "agent.prompt": { type: "agent_prompted" } });
+
+    await expect(client.prompt("wN:p1", "hello")).resolves.toBeUndefined();
+    expect(calls).toEqual([{ method: "agent.prompt", params: { target: "wN:p1", text: "hello", wait: null } }]);
+  });
+
+  it("waits on agent.prompt for the caller timeout and leaves Herdr's default match", async () => {
+    const { client, calls } = clientAnswering({ "agent.prompt": { type: "agent_prompted" } });
+
+    await client.prompt("wN:p1", "hello", { timeoutMs: 5000 });
+    expect(calls).toEqual([
+      {
+        method: "agent.prompt",
+        params: { target: "wN:p1", text: "hello", wait: { timeout_ms: 5000 } },
+      },
+    ]);
+  });
+
+  it("sends until with the timeout when the caller names states", async () => {
+    const { client, calls } = clientAnswering({ "agent.prompt": { type: "agent_prompted" } });
+
+    await client.prompt("wN:p1", "hello", { timeoutMs: 5000, until: ["idle"] });
+    expect(calls[0]?.params).toEqual({
+      target: "wN:p1",
+      text: "hello",
+      wait: { timeout_ms: 5000, until: ["idle"] },
+    });
+  });
+
+  it("surfaces a prompt timeout as Herdr's timeout code", async () => {
+    const { client } = clientWith(async () => ({ error: { code: "timeout", message: "timeout" } }));
+
+    await expect(client.prompt("wN:p1", "hello", { timeoutMs: 10 })).rejects.toMatchObject({
+      code: "timeout",
+      message: "timeout",
+    });
+  });
+
+  it("reads recent agent text with agent.read", async () => {
+    const { client, calls } = clientAnswering({
+      "agent.read": {
+        type: "pane_read",
+        read: { text: "agent finished\n", pane_id: "wN:p1" },
+      },
+    });
+
+    await expect(client.read("wN:p1")).resolves.toBe("agent finished\n");
+    expect(calls).toEqual([
+      {
+        method: "agent.read",
+        params: { target: "wN:p1", source: "recent", format: "text", strip_ansi: true },
+      },
+    ]);
+  });
+});

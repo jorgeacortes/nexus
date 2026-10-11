@@ -33,6 +33,7 @@ pnpm test
 pnpm validate        # biome + typecheck + vitest
 pnpm db:generate     # drizzle-kit generate (tasks schema)
 pnpm db:migrate      # apply SQLite migrations
+pnpm jobs:tick       # one tick of stored jobs (tsx scripts/jobs-tick.ts); off unless JOBS_ENABLED=1
 pnpm db:studio
 pnpm backup:data             # snapshot ./data and upload to R2
 pnpm backup:data -- --dry-run
@@ -133,6 +134,46 @@ Hexagonal layers, three bounded contexts (`projects`, `tasks`, `dispatch`):
   against, every process counts, so the guard fails safe.
 - Last-tab destruction is deliberately **not** guarded: an empty workspace is
   cheap to recreate from the project row (`folderPath` gives the cwd).
+
+## Jobs tick
+
+The Next.js process does not schedule work. Due jobs are claimed by
+`runDueJobs` (`src/application/jobs/run-due-jobs.usecase.ts`). The process that
+calls it on a timer is `scripts/jobs-tick.ts` (`pnpm jobs:tick`), and the
+compose `jobs` service runs that script with `--loop`. The service shares
+`./data` and the read-only Herdr socket with `nexus`. It has no `pid: host`,
+no `cap_add`, and no Docker socket. It starts as the host uid (`user:`),
+because the image entrypoint grants the Servers capabilities only when it is
+root and a root healthcheck would create root-owned SQLite WAL sidecars. The
+nexus service owns DDL: this script never migrates, and a tick against a
+database without the jobs tables fails instead of creating them.
+
+Flags: `--once` (the default), `--loop` (sleep until the next interval
+boundary plus up to five seconds of jitter, then await one tick, then sleep
+again — `setTimeout`, never `setInterval`, so a slow tick cannot overlap the
+next), `--dry-run` (report the due set and write nothing), `--healthcheck`
+(exit 0 only when `jobs_meta.last_tick_at` is fresher than two
+`JOB_TICK_SECONDS`).
+
+Env, also listed in `.env.example`:
+
+- `JOBS_ENABLED` — global kill switch. Default off (`0` / unset). Compose up
+  starts the loop and does not dispatch. `--once` then exits 0 without opening
+  the database. Restart the container after changing it.
+- `JOB_CONCURRENCY` — how many due jobs one tick may claim. Default `1`.
+- `JOB_TICK_SECONDS` — loop interval. Default `60`, which lands on the minute.
+  Any other value aligns to that many seconds since the Unix epoch.
+- `JOB_DRY_RUN` — same as `--dry-run` when `1` / `true` / `yes` / `on`.
+
+A missing row, a null timestamp, or a tick older than two intervals fails the
+healthcheck. Dry-run and a disabled loop do not write `last_tick_at`, so the
+service stays unhealthy until a real tick has run: healthy means a tick
+landed. The tick uses a live idle target pane when that pane sits in the job's
+project folder; a spawn job otherwise places a pane with the dispatch topology
+(reuse a bare shell or create a tab, then start the agent), waits up to
+`timeout_seconds`, and reads the output. A reuse job with no such pane fails
+that run. Leave `JOBS_ENABLED`
+off until a job row is meant to fire.
 
 ## Which model is the agent running?
 
