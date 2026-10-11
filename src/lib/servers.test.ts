@@ -10,6 +10,8 @@ import {
   listenerKind,
   listenerName,
   matchesGroupFilter,
+  runtimeDetail,
+  servedFolder,
   summarizeServers,
 } from "@/lib/servers";
 
@@ -127,6 +129,53 @@ describe("names and folders", () => {
     expect(folderDetail(listener({ cwd: null, home: null }))).toBe("folder not readable for this process");
     expect(folderDetail(listener({ cwd: null, pid: null, process: null }))).toBe("owner not identified");
     expect(listenerName(listener({ cwd: null, process: null, uid: 123 }))).toBe("uid 123");
+  });
+
+  it("names an app after the folder it serves, not the one it was launched from", () => {
+    // serve-site publishes a directory with --directory from whatever cwd the
+    // shell was in; the row must not read `biznagatec-ws` for a `pages` site.
+    const pages = listener({
+      process: "python3",
+      pid: 702794,
+      port: 4408,
+      cwd: "/home/sandbox/ws/biznagatec-ws",
+      command: "python3 -m http.server 4408 --bind 127.0.0.1 --directory /home/sandbox/ws/biznagatec-ws/pages",
+    });
+    expect(servedFolder(pages.command)).toBe("/home/sandbox/ws/biznagatec-ws/pages");
+    expect(listenerName(pages)).toBe("pages");
+    expect(listenerName(listener({ command: "python3 -m http.server --directory=/srv/analisis 4434" }))).toBe(
+      "analisis",
+    );
+  });
+
+  it("falls back to the cwd when no directory is declared, or its value is missing", () => {
+    expect(servedFolder(null)).toBeNull();
+    expect(servedFolder("node server.js")).toBeNull();
+    expect(servedFolder("--directory")).toBeNull();
+    expect(servedFolder("--directory=")).toBeNull();
+    // A service is named by its process even when it declares a folder.
+    const daemon = listener({
+      process: "cupsd",
+      uid: 0,
+      cwd: "/var/snap/cups/1262",
+      command: "cupsd --directory /srv",
+    });
+    expect(listenerName(daemon)).toBe("cupsd");
+  });
+
+  it("keeps a script's own name in the runtime line, not the path it was invoked with", () => {
+    expect(
+      runtimeDetail(listener({ process: "python3", command: "python3 -m http.server 4408 --directory /srv/x" })),
+    ).toBe("python3 · http.server");
+    expect(
+      runtimeDetail(
+        listener({
+          process: "python3",
+          command: "python3 /home/sandbox/.agents/skills/bin/serve-static-server 4408",
+        }),
+      ),
+    ).toBe("python3 · serve-static-server");
+    expect(runtimeDetail(listener({ command: "node server.js" }))).toBe("node · server.js");
   });
 });
 

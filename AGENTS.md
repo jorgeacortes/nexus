@@ -288,8 +288,12 @@ assumed — Herdr's label disagreed with the harnesses in three different ways:
 - **Per-listener identity comes from procfs**, next to the socket match that
   already names the owner: working directory from `/proc/<pid>/cwd`, command line
   from `/proc/<pid>/cmdline`, and `$HOME` from `/proc/<pid>/environ` (used to
-  shorten the folder to `~/ws/…`). The app name is the folder's basename, falling
-  back to the runtime. When the folder is merely unreadable the row says so
+  shorten the folder to `~/ws/…`). The app name is the basename of the folder the
+  process **serves** — `--directory` in its command line, so a `pages` site
+  launched from `~/ws/biznagatec-ws` reads `pages`, not `biznagatec-ws` — falling
+  back to the cwd's basename and then to the runtime. The runtime line keeps a
+  script's own name (`python3 · serve-static-server`), not the path it was
+  invoked with. When the folder is merely unreadable the row says so
   ("folder not readable for this process") rather than printing a bare dash.
 - **Decision: container names come from a socket proxy, never from the real
   socket.** The Docker rows show the container name and the compose identity

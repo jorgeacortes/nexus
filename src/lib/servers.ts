@@ -70,10 +70,37 @@ export function listenerName(listener: ServerListener): string {
   if (listener.container) return containerName(listener.container);
   // A host daemon is known by its process; a folder is the identity of an app,
   // and cupsd's `/var/snap/cups/1262` is not a name anyone would recognise.
-  if (listenerKind(listener) === "app" && listener.cwd) return folderBasename(listener.cwd);
+  if (listenerKind(listener) === "app") {
+    // The folder the process *serves* beats the one it was launched from, when
+    // the command says which that is.
+    const served = servedFolder(listener.command);
+    if (served) return folderBasename(served);
+    if (listener.cwd) return folderBasename(listener.cwd);
+  }
   if (listener.process) return listener.process;
   if (listener.cwd) return folderBasename(listener.cwd);
   return listener.uid === null ? "unknown" : `uid ${listener.uid}`;
+}
+
+/**
+ * The directory a command declares it serves — `python3 -m http.server
+ * --directory /srv/site`, `serve-static-server --directory /srv/site` — or null
+ * when it does not say. A process's cwd is where its launcher happened to be:
+ * a site published from the workspace root serves `~/ws/…/pages` while its cwd
+ * is `~/ws/…`, and naming the row after the cwd would name it after the wrong
+ * folder. Argv is space-joined, so a path containing a space is not recoverable
+ * — that is a reason to keep served directories space-free, not a reason to
+ * guess.
+ */
+export function servedFolder(command: string | null): string | null {
+  if (!command) return null;
+  const argv = command.split(" ").filter(Boolean);
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--directory") return argv[index + 1] ?? null;
+    if (arg.startsWith("--directory=")) return arg.slice("--directory=".length) || null;
+  }
+  return null;
 }
 
 function containerName(container: ServerContainer): string {
@@ -148,7 +175,11 @@ export function runtimeDetail(listener: ServerListener): string | null {
   const executable = argv[0]?.split("/").pop();
   if (listener.process && executable && executable !== listener.process) return listener.process;
   const subcommand = argv.slice(1).find((arg) => !arg.startsWith("-"));
-  if (listener.process && subcommand) return `${listener.process} · ${subcommand}`;
+  // A script is known by its name, not by the path it was invoked with:
+  // `python3 /home/…/bin/serve-static-server` reads as `python3 ·
+  // serve-static-server`.
+  const script = subcommand?.split("/").pop();
+  if (listener.process && script) return `${listener.process} · ${script}`;
   return listener.process ?? null;
 }
 
