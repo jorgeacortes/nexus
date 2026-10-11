@@ -1,5 +1,6 @@
-import { desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lt } from "drizzle-orm";
 
+import { archiveTask, isArchiveEligible, unarchiveTask } from "@/domain/tasks/archive";
 import {
   type AssigneeType,
   type ClaimTaskInput,
@@ -60,6 +61,7 @@ function toDomain(row: TaskRow): Task {
     claimedAt: row.claimedAt ? new Date(row.claimedAt) : null,
     completedAt: row.completedAt ? new Date(row.completedAt) : null,
     reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : null,
+    archivedAt: row.archivedAt ? new Date(row.archivedAt) : null,
     completionNotes: row.completionNotes,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
@@ -85,6 +87,7 @@ function toRow(task: Task) {
     claimedAt: task.claimedAt?.toISOString() ?? null,
     completedAt: task.completedAt?.toISOString() ?? null,
     reviewedAt: task.reviewedAt?.toISOString() ?? null,
+    archivedAt: task.archivedAt?.toISOString() ?? null,
     completionNotes: task.completionNotes,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
@@ -100,15 +103,48 @@ export class DrizzleTaskRepository implements TaskRepository {
   }
 
   async findAll(): Promise<Task[]> {
-    return this.db.select().from(tasks).orderBy(desc(tasks.updatedAt)).all().map(toDomain);
+    return this.db
+      .select()
+      .from(tasks)
+      .where(isNull(tasks.archivedAt))
+      .orderBy(desc(tasks.updatedAt))
+      .all()
+      .map(toDomain);
   }
 
   async findByProjectId(projectId: string): Promise<Task[]> {
     return this.db
       .select()
       .from(tasks)
-      .where(eq(tasks.projectId, projectId))
+      .where(and(eq(tasks.projectId, projectId), isNull(tasks.archivedAt)))
       .orderBy(desc(tasks.updatedAt))
+      .all()
+      .map(toDomain);
+  }
+
+  async findArchived(): Promise<Task[]> {
+    return this.db
+      .select()
+      .from(tasks)
+      .where(isNotNull(tasks.archivedAt))
+      .orderBy(desc(tasks.archivedAt), desc(tasks.completedAt))
+      .all()
+      .map(toDomain);
+  }
+
+  async findArchiveCandidates(completedBefore: Date): Promise<Task[]> {
+    return this.db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.status, "done"),
+          isNull(tasks.archivedAt),
+          isNotNull(tasks.completedAt),
+          lt(tasks.completedAt, completedBefore.toISOString()),
+        ),
+      )
+      .orderBy(asc(tasks.completedAt))
       .all()
       .map(toDomain);
   }
@@ -154,6 +190,27 @@ export class DrizzleTaskRepository implements TaskRepository {
     const completed = completeTask(existing, input);
     this.db.update(tasks).set(toRow(completed)).where(eq(tasks.id, id)).run();
     return completed;
+  }
+
+  async archive(id: string, now: Date): Promise<Task | null> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Task ${id} not found`);
+    }
+    if (!isArchiveEligible(existing, now)) return null;
+    const archived = archiveTask(existing, now);
+    this.db.update(tasks).set(toRow(archived)).where(eq(tasks.id, id)).run();
+    return archived;
+  }
+
+  async unarchive(id: string, now: Date): Promise<Task> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Task ${id} not found`);
+    }
+    const restored = unarchiveTask(existing, now);
+    this.db.update(tasks).set(toRow(restored)).where(eq(tasks.id, id)).run();
+    return restored;
   }
 
   async delete(id: string): Promise<void> {

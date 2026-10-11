@@ -48,9 +48,9 @@ export function parseReviewFilter(raw: string | null): ReviewFilter {
   return raw === NEEDS_REVIEW_KEY ? NEEDS_REVIEW_KEY : null;
 }
 
-/** A reviewed task is `done` with a `reviewedAt`; the queue is done without one. */
+/** A reviewed task is `done` with a `reviewedAt`; the queue is done without one. Archived tasks are off the board. */
 export function needsReview(task: TaskDto): boolean {
-  return task.status === "done" && task.reviewedAt === null;
+  return task.archivedAt === null && task.status === "done" && task.reviewedAt === null;
 }
 
 export function matchesReviewFilter(task: TaskDto, filter: ReviewFilter): boolean {
@@ -67,12 +67,14 @@ export function matchesProjectFilter(task: TaskDto, filter: ProjectFilter): bool
 }
 
 /**
- * Task counts per project (plus the no-project bucket) over *every* task, so a
- * filtered board still shows how much it is hiding.
+ * Task counts per project (plus the no-project bucket) over every task still
+ * on the board, so a filtered board still shows how much it is hiding.
+ * Archived tasks are omitted: they are not a column and must not inflate a chip.
  */
 export function projectFilterCounts(tasks: TaskDto[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const task of tasks) {
+    if (task.archivedAt !== null) continue;
     const key = projectFilterKey(task);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }

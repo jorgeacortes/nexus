@@ -29,6 +29,7 @@ export type Task = {
   claimedAt: string | null;
   completedAt: string | null;
   reviewedAt: string | null;
+  archivedAt: string | null;
   completionNotes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -140,6 +141,11 @@ export type LiveAgentsPayload = {
   available: boolean;
   error: string | null;
   agents: LiveAgent[];
+};
+
+/** `POST /api/tasks/archive` — the one-shot sweep. */
+export type ArchiveSweepResult = {
+  archived: Task[];
 };
 
 export type ApiEnvelope<T> = { data: T; error: string | null };

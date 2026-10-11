@@ -1,10 +1,11 @@
-import { Bot, Columns3, FolderKanban, Inbox, type LucideIcon, Network } from "lucide-react";
+import { Archive, Bot, Columns3, FolderKanban, Inbox, type LucideIcon, Network } from "lucide-react";
 
 export type NavItem = { href: string; label: string; hint: string; icon: LucideIcon };
 
 /** The app's destinations, shared by the desktop sidebar and the mobile drawer. */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/board", label: "Board", hint: "One kanban", icon: Columns3 },
+  { href: "/archive", label: "Archive", hint: "After 7 days", icon: Archive },
   { href: "/inbox", label: "Inbox", hint: "Needs you", icon: Inbox },
   { href: "/agents", label: "Agents", hint: "Live status", icon: Bot },
   { href: "/servers", label: "Servers", hint: "Listening ports", icon: Network },

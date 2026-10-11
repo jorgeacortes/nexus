@@ -73,6 +73,42 @@ Hexagonal layers, three bounded contexts (`projects`, `tasks`, `dispatch`):
 - Web affordances: the detail-sheet toggle, a check badge on the card (date in
   the tooltip), and a "Needs review" board filter (`done` with no `reviewedAt`).
 
+## Archived tasks (`archivedAt`)
+
+- `archivedAt` is a nullable timestamp. Null means the task is still on the
+  board; a date means the sweep moved it to the archive. There is no `archived`
+  value in `TASK_STATUSES`. That array is the five board columns, the create
+  dialog, and the CLI status list — an archived status would put a sixth column
+  on the board.
+- Eligibility is one rule, `isArchiveEligible` in `src/domain/tasks/archive.ts`:
+  status is `done`, `completedAt` is strictly older than `ARCHIVE_AFTER_MS`
+  (7 days, the only copy of that interval), and `archivedAt` is null. The sweep
+  passes `now` in. The domain does not call `Date.now()`.
+- Moving a task out of `done` clears `completedAt`, `reviewedAt`, and
+  `archivedAt`. A reopened task must not keep a stale completion stamp.
+- Unarchive (`POST /api/tasks/:id/unarchive`, the archive table's button, and
+  `nx archive undo <id>`) sets status to `ready` and clears `archivedAt` and
+  `completedAt`. The task is not eligible again until it is completed once more.
+  Archived tasks are not deleted. Hard delete is unchanged. `nx claim` on an
+  archived task fails and says it is archived.
+- **No scheduler inside Next.js.** The sweep is one use case,
+  `ArchiveTasksUseCase`. `nx archive sweep` (`POST /api/tasks/archive`) runs it
+  on demand. The board page and every task-list read (`ListTasksUseCase`, which
+  is `GET /api/tasks` and the archive page) call that same use case before
+  returning rows, so a card leaves when someone looks and there is no daemon to
+  keep alive. This is the same shape as dispatch (`nx dispatch detect` is a
+  one-shot command; nothing polls). A crontab line would be a second scheduler,
+  and an in-process timer would be one too — the board, Agents, and Servers
+  views already poll from the client, and the server does not grow a loop to
+  match them. The first sweep is retroactive: a task completed more than 7 days
+  ago archives on that run.
+- Default lists omit archived rows: board columns and counts, project filter
+  counts, the inbox, `nx task list`, `nx board`, and `GET /api/tasks`.
+  `?archived=only` and `?archived=include` are the explicit queries. The archive
+  screen (`/archive`, linked from the nav) is a read-only table — title,
+  project, priority, agent/harness/model, claimed and completed dates,
+  completion notes — plus Unarchive.
+
 ## Board ordering (last activity)
 
 - Every task list defaults to **last activity**: `updatedAt` desc, so the card
