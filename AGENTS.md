@@ -225,10 +225,12 @@ it as needing you, and `nx job approve` is the run. A `poll` job checks
 schedule and dispatches only when that is true. `dailyRunCap` stops the tick
 after that many runs have started since UTC midnight; `nx job run` is not
 capped. `enabled` is the per-job kill switch, and `JOB_CONCURRENCY` is already
-how many due jobs one tick may claim. NagaBot's routine clock
-(`nagabot/src/routines/clock.ts`) still submits into its own durable
-conversations. Folding that clock into this table is a separate decision: the
-live clock is not the JSON routine store the jobs assessment described.
+how many due jobs one tick may claim.
+
+**Nexus and NagaBot stay separate projects.** A Nexus job never reads or
+writes NagaBot's routine clock, and NagaBot never creates or owns a board
+job. There is no shared store and no bridge that would make one the front
+door of the other. That reconciliation was rejected on 2026-10-11.
 
 ## Which model is the agent running?
 
