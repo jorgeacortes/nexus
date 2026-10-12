@@ -14,7 +14,7 @@ This is the single source of truth for the project's product decisions and imple
 
 **Non-goals.** Multi-user support, authentication, hosting for teams, mobile apps, integrations beyond Herdr for now.
 
-> **Amended 2026-10-05 (operator decision, see `DESIGN-dispatch.md`).** The old non-goal *"task automation itself (Nexus observes and dispatches; it does not execute work)"* is narrowed: Nexus now owns a `dispatch` context that **creates Herdr topology and starts agents** on demand (`nx dispatch <task>`). The companion non-goal **still stands**: there is no dispatcher daemon, no poller, no queue, no background scheduler inside Next.js — `dispatch()` is a one-shot function invoked by a CLI or a timer outside the app.
+> Nexus owns a `dispatch` context that **creates Herdr topology and starts agents** on demand (`nx dispatch <task>`; see `DESIGN-dispatch.md`). There is no dispatcher daemon, no poller, no queue, and no background scheduler inside Next.js. `dispatch()` is a one-shot function. Stored jobs run from a separate tick outside the app and reuse the same placement rules.
 
 **Constraints.**
 - **Personal project:** single operator, single machine; no auth, no multi-tenancy.

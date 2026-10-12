@@ -57,9 +57,9 @@ export type DetectLostAgentsDeps = {
 type PaneSnapshot = { available: true; panes: Map<string, HarnessPane> } | { available: false; reason: string };
 
 /**
- * The one-shot lost-agent sweep of DESIGN-dispatch.md §3.3, run by
- * `nx dispatch detect` / `POST /api/dispatch/detect` — and, later, by a
- * `runDueJobs()` tick. **No timer lives here**: it runs exactly once per call.
+ * The one-shot lost-agent sweep of DESIGN-dispatch.md, run by
+ * `nx dispatch detect` / `POST /api/dispatch/detect`. **No timer lives here**:
+ * it runs exactly once per call.
  *
  * Candidates are the ledger's open, started rows (DSP-4): an agent Nexus itself
  * placed and has not seen end. A row whose pane is still in the live snapshot is

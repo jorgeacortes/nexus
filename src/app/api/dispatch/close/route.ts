@@ -8,7 +8,7 @@ import { dispatchErrorResponse } from "../_lib/errors";
 const closeSchema = z.object({ tabId: z.string().trim().min(1) });
 
 /**
- * The guarded teardown of DESIGN-dispatch.md §3.2: `nx dispatch close <tab>`.
+ * The guarded teardown of DESIGN-dispatch.md: `nx dispatch close <tab>`.
  * Thin on purpose — validate, call the use case, return JSON. A protected tab
  * yields 409 and **no action**; the tab is still open.
  */

@@ -64,7 +64,7 @@ function isDispatchable(status: string): boolean {
 }
 
 /**
- * The create flow of DESIGN-dispatch.md §3.1:
+ * The create flow of DESIGN-dispatch.md:
  *
  * 1. **Lease** the task in one SQLite transaction; refuse while a live dispatch
  *    exists (the lease precedes every side effect, so a racing caller touches no

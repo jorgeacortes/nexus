@@ -230,7 +230,7 @@ how many due jobs one tick may claim.
 **Nexus and NagaBot stay separate projects.** A Nexus job never reads or
 writes NagaBot's routine clock, and NagaBot never creates or owns a board
 job. There is no shared store and no bridge that would make one the front
-door of the other. That reconciliation was rejected on 2026-10-11.
+door of the other.
 
 ## Which model is the agent running?
 

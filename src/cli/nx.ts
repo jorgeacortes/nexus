@@ -777,11 +777,11 @@ async function assignCommand(argv: string[]): Promise<void> {
  * refused by the lease.
  *
  * `nx dispatch close <tab>` is the sibling teardown and the **sanctioned** way to
- * close a harness tab (DESIGN-dispatch.md §3.2 / §4): it refuses, non-zero, while
+ * close a harness tab (DESIGN-dispatch.md): it refuses, non-zero, while
  * any pane in the tab still holds live work. A raw `herdr tab close` bypasses it.
  *
  * `nx dispatch detect` is the one-shot sweep that covers that bypass
- * (DESIGN-dispatch.md §3.3): it reads the live snapshot once and flags any agent
+ * (DESIGN-dispatch.md): it reads the live snapshot once and flags any agent
  * whose pane vanished while its task was unfinished. It runs once per call — no
  * daemon, no timer.
  */
@@ -828,7 +828,7 @@ async function dispatchCloseCommand(argv: string[]): Promise<void> {
 }
 
 /**
- * `nx dispatch detect` — the one-shot lost-agent sweep (DESIGN-dispatch.md §3.3).
+ * `nx dispatch detect` — the one-shot lost-agent sweep (DESIGN-dispatch.md).
  * Read-only with respect to Herdr: it only reads the snapshot, ends a dispatch
  * row as `lost` and flags the task. An unreadable snapshot exits non-zero and
  * flags nothing, so "Herdr is down" never reads as "every agent vanished".

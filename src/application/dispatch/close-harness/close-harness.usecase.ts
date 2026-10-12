@@ -55,7 +55,7 @@ export type CloseHarnessResult = {
 };
 
 /**
- * The guarded teardown of DESIGN-dispatch.md §3.2, run by `nx dispatch close`
+ * The guarded teardown of DESIGN-dispatch.md, run by `nx dispatch close`
  * and `POST /api/dispatch/close`.
  *
  * It resolves the tab's panes and, for each, the task the pane owns and — only

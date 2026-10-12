@@ -1,8 +1,8 @@
 /**
  * Lost-agent detection: the control for the one close path Nexus does not own.
  *
- * Herdr cannot be made to refuse a raw `herdr tab close` (DESIGN-dispatch.md §1,
- * §3.3), so a pane can vanish out from under an agent that was `working`. Nexus
+ * Herdr cannot be made to refuse a raw `herdr tab close` (DESIGN-dispatch.md),
+ * so a pane can vanish out from under an agent that was `working`. Nexus
  * already polls the live snapshot every 5 s, so the remaining control is
  * detection: the dispatcher's ledger says which agents it started, and an open
  * row whose pane is no longer in the snapshot is an agent that vanished without

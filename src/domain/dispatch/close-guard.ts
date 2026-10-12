@@ -1,6 +1,6 @@
 /**
  * The close guard: the pure rule that decides whether a Herdr tab may be closed
- * (DESIGN-dispatch.md §3.2). It lives in the domain so it is unit-tested without
+ * (DESIGN-dispatch.md). It lives in the domain so it is unit-tested without
  * a socket, and the application layer only resolves the facts (the tab's panes,
  * the task each pane owns, the foreground processes of an agent-less pane) and
  * then obeys the verdict.
@@ -43,7 +43,7 @@ export type CloseGuardTask = {
 };
 
 /**
- * One open ledger row placed on the tab (DESIGN-dispatch.md §2.2), the guard's
+ * One open ledger row placed on the tab (DESIGN-dispatch.md), the guard's
  * second join. It is only resolved from the ledger when the row still holds its
  * lease (`isLeaseHeld`), so a row that reached placement and then died unstarted
  * is not treated as live work.

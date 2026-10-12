@@ -2,7 +2,7 @@
  * Where a dispatched agent runs: the pure choices the dispatcher makes before it
  * touches Herdr. Kept in the domain so they are unit-tested without a socket.
  *
- * Placement rule (DESIGN-dispatch.md §3.1): reuse a bare shell pane already in
+ * Placement rule (DESIGN-dispatch.md): reuse a bare shell pane already in
  * the project's workspace when one sits in the task's folder, otherwise create a
  * tab per task. A pane already running an agent is never reused — Herdr cannot
  * start a second agent in it. Either way the tab the agent lands in is labelled
