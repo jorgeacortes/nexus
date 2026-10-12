@@ -69,29 +69,31 @@ export function BoardClient({
 
   // The selection belongs in the URL: a narrowed board survives a refresh and
   // can be shared. replaceState (not push) keeps the History stack clean while
-  // clicking through projects, and still updates useSearchParams.
+  // clicking through projects, and still updates useSearchParams. Read the
+  // live query string, not the hook snapshot: Clear writes the project and
+  // the review filter in one click, and the second write must see the first.
   const setProjectFilter = useCallback(
     (filter: ProjectFilter) => {
-      const href = hrefWithProjectFilter(pathname, filter, new URLSearchParams(searchParams.toString()));
+      const href = hrefWithProjectFilter(pathname, filter, new URLSearchParams(window.location.search));
       window.history.replaceState(null, "", href);
     },
-    [pathname, searchParams],
+    [pathname],
   );
 
   const setReviewFilter = useCallback(
     (filter: ReviewFilter) => {
-      const href = hrefWithReviewFilter(pathname, filter, new URLSearchParams(searchParams.toString()));
+      const href = hrefWithReviewFilter(pathname, filter, new URLSearchParams(window.location.search));
       window.history.replaceState(null, "", href);
     },
-    [pathname, searchParams],
+    [pathname],
   );
 
   const setSort = useCallback(
     (next: BoardSort) => {
-      const href = hrefWithSortFilter(pathname, next, new URLSearchParams(searchParams.toString()));
+      const href = hrefWithSortFilter(pathname, next, new URLSearchParams(window.location.search));
       window.history.replaceState(null, "", href);
     },
-    [pathname, searchParams],
+    [pathname],
   );
 
   const boardTasks = useMemo(() => tasks.filter((task) => task.archivedAt === null), [tasks]);

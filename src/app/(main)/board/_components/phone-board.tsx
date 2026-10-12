@@ -87,7 +87,7 @@ export function PhoneBoard({
               </span>
               <span
                 className={cn(
-                  "w-full truncate text-[10px] leading-tight",
+                  "w-full text-balance text-center text-[10px] leading-tight",
                   active ? "text-primary-foreground/80" : "text-muted-foreground",
                 )}
               >
@@ -116,7 +116,7 @@ export function PhoneBoard({
         {tasks.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
             {hiddenCount > 0
-              ? `${hiddenCount} hidden by the project filter`
+              ? `${hiddenCount} hidden by the filter`
               : `Nothing in ${COLUMN_META[selected].label.toLowerCase()}`}
           </p>
         ) : null}
